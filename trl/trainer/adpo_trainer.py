@@ -412,7 +412,15 @@ class ADPOTrainer(Trainer):
                 }
             else:
                 eval_dataset = self._prepare_dataset(eval_dataset, processing_class, args, "eval")
-
+        
+        print("DEBUG: Checking processed train_dataset for input ids keys...")
+        for i in range(len(train_dataset)):
+            ex = train_dataset[i]
+            missing = [k for k in ["response_input_ids", "chosen_input_ids", "rejected_input_ids"]
+                    if k not in ex or not isinstance(ex[k], list) or len(ex[k]) == 0]
+            if missing:
+                print(f"BAD ROW at {i}: missing keys {missing}, ex: {ex}")
+        print("Check completed.")
         super().__init__(
             model=model,
             args=args,
@@ -589,7 +597,6 @@ class ADPOTrainer(Trainer):
 
         with PartialState().main_process_first():
             # Extract response if needed
-            dataset = dataset.map(lambda ex, idx: {**ex, "__idx__": idx}, with_indices=True, load_from_cache_file=False)
             if isinstance(dataset, Dataset):  # `IterableDataset.map` does not support `desc`
                 map_kwargs["desc"] = f"Extracting response in {dataset_name} dataset"
             # dataset = dataset.map(maybe_extract_response, **map_kwargs)
@@ -632,7 +639,8 @@ class ADPOTrainer(Trainer):
                 **map_kwargs,
             )
             # print("DEBUG: After tokenization, first 2 rows:", dataset[:2])
-            # === ADD THIS FILTER TO SKIP BROKEN ROWS ===
+            
+        # === ADD THIS FILTER TO SKIP BROKEN ROWS ===
         def has_required_keys(example):
             # You can be stricter if you want to check for non-empty lists too
             if example['response_input_ids'] is None or example['chosen_input_ids'] is None or example['rejected_input_ids'] is None:
@@ -640,8 +648,12 @@ class ADPOTrainer(Trainer):
             if len(example['response_input_ids']) == 0 or len(example['chosen_input_ids']) == 0 or len(example['rejected_input_ids']) == 0:
                 print("DEBUG: Broken row:", example)
             return all(k in example and example[k] and len(example[k]) > 0 for k in ["response_input_ids", "chosen_input_ids", "rejected_input_ids"])
+        print("Before filter, dataset length:", len(dataset))
         dataset = dataset.filter(has_required_keys, load_from_cache_file=False)
+        print("After filter, dataset length:", len(dataset))
+        print("First 2 examples after filter:", [dataset[i] for i in range(2)])
         # ===========================================
+        dataset = dataset.map(lambda ex, idx: {**ex, "__idx__": idx}, with_indices=True, load_from_cache_file=False)
         return dataset
 
 # Modified
