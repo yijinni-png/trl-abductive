@@ -103,7 +103,7 @@ class DataCollatorForPreference(DataCollatorMixin):
             missing_keys = [k for k in ["response_input_ids", "chosen_input_ids", "rejected_input_ids"] if k not in ex]
             empty_keys = [k for k in ["response_input_ids", "chosen_input_ids", "rejected_input_ids"] if k in ex and not ex[k]]
             if missing_keys or empty_keys:
-                print(f"BAD EXAMPLE at batch idx {idx}:")
+                print(f"BAD EXAMPLE in collator, batch idx {idx}, dataset idx {ex.get('__idx__', 'unknown')}: {ex}")
                 print(f"    missing_keys: {missing_keys}, empty keys: {empty_keys}")
                 print(f"    example: {repr(ex)}")
             else:
@@ -589,6 +589,7 @@ class ADPOTrainer(Trainer):
 
         with PartialState().main_process_first():
             # Extract response if needed
+            dataset = dataset.map(lambda ex, idx: {**ex, "__idx__": idx}, with_indices=True, load_from_cache_file=False)
             if isinstance(dataset, Dataset):  # `IterableDataset.map` does not support `desc`
                 map_kwargs["desc"] = f"Extracting response in {dataset_name} dataset"
             # dataset = dataset.map(maybe_extract_response, **map_kwargs)
