@@ -53,7 +53,7 @@ def is_conversational(example: dict[str, Any]) -> bool:
     False
     ```
     """
-    supported_keys = ["prompt", "chosen", "rejected", "completion", "messages"]
+    supported_keys = ["prompt", "chosen", "rejected", "completion", "messages", 'response']
     example_keys = {key for key in example.keys() if key in supported_keys}
 
     # It must have one of the supported keys

@@ -90,31 +90,6 @@ class DataCollatorForPreference(DataCollatorMixin):
             Token ID to use for padding.
         return_tensors (`str`, *optional*, defaults to `"pt"`):
             Type of Tensor to return. Only `"pt"` is currently supported.
-
-    Examples:
-    ```python
-    >>> from trl import DataCollatorForPreference
-
-    >>> collator = DataCollatorForPreference(pad_token_id=0)
-    >>> examples = [
-    ...     {"prompt_input_ids": [1, 2, 3], "chosen_input_ids": [4, 5], "rejected_input_ids": [6]},
-    ...     {"prompt_input_ids": [7, 8], "chosen_input_ids": [9, 10], "rejected_input_ids": [11, 12, 13]},
-    ... ]
-    >>> collator(examples)
-    {'prompt_input_ids': tensor([[1, 2, 3],
-                                 [0, 7, 8]]),
-     'prompt_attention_mask': tensor([[1, 1, 1],
-                                      [0, 1, 1]]),
-     'chosen_input_ids': tensor([[ 4,  5],
-                                 [ 9, 10]]),
-     'chosen_attention_mask': tensor([[1, 1],
-                                      [1, 1]]),
-     'rejected_input_ids': tensor([[ 6,  0,  0],
-                                   [11, 12, 13]]),
-     'rejected_attention_mask': tensor([[1, 0, 0],
-                                        [1, 1, 1]])
-    }
-    ```
     """
 
     pad_token_id: int
@@ -601,9 +576,9 @@ class ADPOTrainer(Trainer):
             map_kwargs["writer_batch_size"] = 10
 
         with PartialState().main_process_first():
-            # Extract prompt if needed
+            # Extract response if needed
             if isinstance(dataset, Dataset):  # `IterableDataset.map` does not support `desc`
-                map_kwargs["desc"] = f"Extracting prompt in {dataset_name} dataset"
+                map_kwargs["desc"] = f"Extracting response in {dataset_name} dataset"
             dataset = dataset.map(maybe_extract_response, **map_kwargs)
 
             # Apply the chat template if needed
