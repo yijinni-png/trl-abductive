@@ -580,6 +580,7 @@ class ADPOTrainer(Trainer):
             if isinstance(dataset, Dataset):  # `IterableDataset.map` does not support `desc`
                 map_kwargs["desc"] = f"Extracting response in {dataset_name} dataset"
             dataset = dataset.map(maybe_extract_response, **map_kwargs)
+            print("DEBUG: After maybe_extract_response, first 2 rows:", dataset[:2])
 
             # Apply the chat template if needed
             if isinstance(dataset, Dataset):  # `IterableDataset.map` does not support `desc`
@@ -587,6 +588,7 @@ class ADPOTrainer(Trainer):
             dataset = dataset.map(
                 maybe_apply_chat_template, fn_kwargs={"tokenizer": processing_class, "tools": args.tools}, **map_kwargs
             )
+            print("DEBUG: After maybe_apply_chat_template, first 2 rows:", dataset[:2])
 
             # Tokenize the dataset
             if isinstance(dataset, Dataset):  # `IterableDataset.map` does not support `desc`
@@ -604,6 +606,7 @@ class ADPOTrainer(Trainer):
                 },
                 **map_kwargs,
             )
+            print("DEBUG: After tokenization, first 2 rows:", dataset[:2])
 
         return dataset
 
