@@ -97,6 +97,18 @@ class DataCollatorForPreference(DataCollatorMixin):
 
     def torch_call(self, examples: list[Union[list[int], Any, dict[str, Any]]]) -> dict[str, Any]:
         # Convert to tensor
+        print('='*60)
+        print("DEBUG: Recived a batch of", len(examples), "examples")
+        for idx, ex in enumerate(examples):
+            missing_keys = [k for k in ["response_input_ids", "chosen_input_ids", "rejected_input_ids"] if k not in ex]
+            empty_keys = [k for k in ["response_input_ids", "chosen_input_ids", "rejected_input_ids"] if k in ex and not ex[k]]
+            if missing_keys or empty_keys:
+                print(f"BAD EXAMPLE at batch idx {idx}:")
+                print(f"    missing_keys: {missing_keys}, empty keys: {empty_keys}")
+                print(f"    example: {repr(ex)}")
+            else:
+                print(f"GOOD EXAMPLE at batch idx {idx}:")
+        print('='*60)
         response_input_ids = [torch.tensor(example["response_input_ids"]) for example in examples]
         response_attention_mask = [torch.ones_like(input_ids) for input_ids in response_input_ids]
         chosen_input_ids = [torch.tensor(example["chosen_input_ids"]) for example in examples]
@@ -615,7 +627,7 @@ class ADPOTrainer(Trainer):
             if len(example['response_input_ids']) == 0 or len(example['chosen_input_ids']) == 0 or len(example['rejected_input_ids']) == 0:
                 print("DEBUG: Broken row:", example)
             return all(k in example and example[k] and len(example[k]) > 0 for k in ["response_input_ids", "chosen_input_ids", "rejected_input_ids"])
-        dataset = dataset.filter(has_required_keys)
+        dataset = dataset.filter(has_required_keys, load_from_cache_file=False)
         # ===========================================
         return dataset
 
