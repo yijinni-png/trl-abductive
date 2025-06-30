@@ -605,7 +605,11 @@ class ADPOTrainer(Trainer):
             # Tokenize the dataset
             if isinstance(dataset, Dataset):  # `IterableDataset.map` does not support `desc`
                 map_kwargs["desc"] = f"Tokenizing {dataset_name} dataset"
-
+            print(f'DEBUG: Remove examples with missing or empty responses.')
+            for i in range(len(dataset)):
+                ex = dataset[i]
+                if "response" not in ex or not ex["response"]:
+                    print(f"[PRE-TOKENIZATION] Example {i} missing or empty 'response': {ex}")
             dataset = dataset.map(
                 self.tokenize_row if not self.is_vision_model else self.process_row,
                 remove_columns=["chosen", "rejected"],
