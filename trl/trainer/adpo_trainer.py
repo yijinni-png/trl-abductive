@@ -612,7 +612,9 @@ class ADPOTrainer(Trainer):
             # You can be stricter if you want to check for non-empty lists too
             if example['response_input_ids'] is None or example['chosen_input_ids'] is None or example['rejected_input_ids'] is None:
                 print("DEBUG: Broken row:", example)
-            return all(k in example and example[k] for k in ["response_input_ids", "chosen_input_ids", "rejected_input_ids"])
+            if len(example['response_input_ids']) == 0 or len(example['chosen_input_ids']) == 0 or len(example['rejected_input_ids']) == 0:
+                print("DEBUG: Broken row:", example)
+            return all(k in example and example[k] and len(example[k]) > 0 for k in ["response_input_ids", "chosen_input_ids", "rejected_input_ids"])
         dataset = dataset.filter(has_required_keys)
         # ===========================================
         return dataset
