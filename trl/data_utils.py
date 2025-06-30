@@ -472,7 +472,10 @@ def maybe_extract_response(example: dict[str, list]) -> dict[str, list]:
         response_conv = is_conversational({"response": example["response"]})
         if (chosen_conv and response_conv) or (not chosen_conv and not response_conv):
             return example
-    return extract_response({"chosen": example["chosen"], "rejected": example["rejected"]})
+    res = extract_response({"chosen": example["chosen"], "rejected": example["rejected"]})
+    if 'response' not in res or not res['response']:
+        print(f'maybe_extract_response failed to extract response for:', example)
+    return res
 
 def maybe_extract_prompt(example: dict[str, list]) -> dict[str, list]:
     r"""
