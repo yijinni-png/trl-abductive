@@ -31,7 +31,7 @@ class FDivergenceConstants:
 
 
 @dataclass
-class DPOConfig(TrainingArguments):
+class ADPOConfig(TrainingArguments):
     r"""
     Configuration class for the [`DPOTrainer`].
 
