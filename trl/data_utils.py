@@ -81,7 +81,7 @@ def apply_chat_template(
     For more details, see [`maybe_apply_chat_template`].
     """
     # Check that the example has the correct keys
-    supported_keys = ["prompt", "chosen", "rejected", "completion", "messages", "label"]
+    supported_keys = ["prompt", "chosen", "rejected", "completion", "messages", "label", "response"]
     example_keys = {key for key in example.keys() if key in supported_keys}
     if example_keys not in [
         {"messages"},  # language modeling
@@ -89,6 +89,7 @@ def apply_chat_template(
         {"prompt", "completion"},  # prompt-completion
         {"prompt", "chosen", "rejected"},  # preference
         {"chosen", "rejected"},  # preference with implicit prompt
+        {"chosen", "rejected", "response"},  # preference with implicit response (chosen/rejected are prompts)
         {"prompt", "completion", "label"},  # unpaired preference
     ]:
         raise KeyError(f"Invalid keys in the example: {example_keys}")
@@ -116,8 +117,54 @@ def apply_chat_template(
             add_generation_prompt=add_generation_prompt,
         )
 
+    # Handle the case where we have {"chosen", "rejected", "response"}
+    # In this case, chosen and rejected are prompts, and response is the shared ending
+    if "response" in example and "chosen" in example and "rejected" in example and "prompt" not in example:
+        # Apply chat template to the prompts (chosen and rejected are prompts in this case)
+        last_role_chosen = example["chosen"][-1]["role"]
+        last_role_rejected = example["rejected"][-1]["role"]
+        
+        if last_role_chosen == "user":
+            add_generation_prompt_chosen = True
+            continue_final_message_chosen = False
+        elif last_role_chosen == "assistant":
+            add_generation_prompt_chosen = False
+            continue_final_message_chosen = True
+        else:
+            raise ValueError(f"Invalid role in the last message of chosen: {last_role_chosen}")
+            
+        if last_role_rejected == "user":
+            add_generation_prompt_rejected = True
+            continue_final_message_rejected = False
+        elif last_role_rejected == "assistant":
+            add_generation_prompt_rejected = False
+            continue_final_message_rejected = True
+        else:
+            raise ValueError(f"Invalid role in the last message of rejected: {last_role_rejected}")
+        
+        # Apply template to prompts (chosen and rejected in this context are the prompts)
+        chosen = tokenizer.apply_chat_template(
+            example["chosen"],
+            tools=tools,
+            continue_final_message=continue_final_message_chosen,
+            tokenize=False,
+            add_generation_prompt=add_generation_prompt_chosen,
+        )
+        rejected = tokenizer.apply_chat_template(
+            example["rejected"],
+            tools=tools,
+            continue_final_message=continue_final_message_rejected,
+            tokenize=False,
+            add_generation_prompt=add_generation_prompt_rejected,
+        )
+        
+        # Apply template to the shared response
+        response_only = tokenizer.apply_chat_template(
+            example["response"], tools=tools, tokenize=False
+        )
+
     # Apply the chat template to the entire prompt + completion
-    if "prompt" in example:  # explicit prompt and prompt-completion case
+    elif "prompt" in example:  # explicit prompt and prompt-completion case
         if "chosen" in example:
             prompt_chosen = tokenizer.apply_chat_template(
                 example["prompt"] + example["chosen"], tools=tools, tokenize=False
@@ -142,10 +189,10 @@ def apply_chat_template(
             # Handle DeepSeek-R1 <think> token, see the above comment for details
             prompt = "".join(x for x, _ in takewhile(lambda x: x[0] == x[1], zip(prompt, prompt_completion)))
             completion = prompt_completion[len(prompt) :]
-    else:  # implicit prompt case
-        if "chosen" in example:
+    else:  # implicit prompt case (original {"chosen", "rejected"} without response)
+        if "chosen" in example and "response" not in example:
             chosen = tokenizer.apply_chat_template(example["chosen"], tools=tools, tokenize=False)
-        if "rejected" in example:
+        if "rejected" in example and "response" not in example:
             rejected = tokenizer.apply_chat_template(example["rejected"], tools=tools, tokenize=False)
 
     # Extract the completion by removing the prompt part from the prompt-completion string
@@ -162,6 +209,8 @@ def apply_chat_template(
         output["completion"] = completion
     if "label" in example:
         output["label"] = example["label"]
+    if "response" in example and "response_only" in locals():
+        output["response"] = response_only
 
     return output
 
@@ -329,6 +378,44 @@ def maybe_unpair_preference_dataset(
         return dataset
 
 
+def extract_response(example: dict[str, Sequence]) -> dict[str, Sequence]:
+    r"""
+    Extracts the shared response from a preference data example, where the response is implicit within both the chosen and
+    rejected completions.
+
+    For more details, see [`maybe_extract_response`].
+    """
+    chosen = example["chosen"]
+    rejected = example["rejected"]
+    
+    # Find the shared suffix by comparing from the end
+    shared_length = 0
+    min_length = min(len(chosen), len(rejected))
+    
+    for i in range(1, min_length + 1):
+        if chosen[-i] == rejected[-i]:
+            shared_length = i
+        else:
+            break
+    
+    if shared_length > 0:
+        # Handle space after the response (similar to prompt handling)
+        if shared_length < min_length and chosen[-(shared_length + 1)] == " ":
+            shared_length += 1
+        
+        return {
+            "chosen": chosen[:len(chosen) - shared_length],
+            "rejected": rejected[:len(rejected) - shared_length],
+            "response": chosen[-shared_length:],
+        }
+    else:
+        # No shared response found
+        return {
+            "chosen": chosen,
+            "rejected": rejected,
+            "response": [],
+        }
+
 def extract_prompt(example: dict[str, Sequence]) -> dict[str, Sequence]:
     r"""
     Extracts the shared prompt from a preference data example, where the prompt is implicit within both the chosen and
@@ -347,6 +434,98 @@ def extract_prompt(example: dict[str, Sequence]) -> dict[str, Sequence]:
         "rejected": example["rejected"][idx:],
     }
 
+
+def maybe_extract_response(example: dict[str, list]) -> dict[str, list]:
+    r"""
+    Extracts the shared prompt from a preference data example, where the prompt is implicit within both the chosen and
+    rejected completions.
+
+    If the example already contains a `"prompt"` key, the function returns the example as is. Else, the function
+    identifies the longest common sequence (prefix) of conversation turns between the "chosen" and "rejected"
+    completions and extracts this as the prompt. It then removes this prompt from the respective "chosen" and
+    "rejected" completions.
+
+    Args:
+        example (`dict[str, list]`):
+            A dictionary representing a single data entry in the preference dataset. It must contain the keys
+            `"chosen"` and `"rejected"`, where each value is either conversational or standard (`str`).
+
+    Returns:
+        `dict[str, list]`: A dictionary containing:
+            - `"prompt"`: The longest common prefix between the "chosen" and "rejected" completions.
+            - `"chosen"`: The remainder of the "chosen" completion, with the prompt removed.
+            - `"rejected"`: The remainder of the "rejected" completion, with the prompt removed.
+
+    Examples:
+
+    ```python
+    >>> example = {
+    ...     "chosen": [
+    ...         {"role": "user", "content": "What color is the sky?"},
+    ...         {"role": "assistant", "content": "It is blue."},
+    ...     ],
+    ...     "rejected": [
+    ...         {"role": "user", "content": "What color is the sky?"},
+    ...         {"role": "assistant", "content": "It is green."},
+    ...     ],
+    ... }
+    >>> extract_prompt(example)
+    {'prompt': [{'role': 'user', 'content': 'What color is the sky?'}],
+     'chosen': [{'role': 'assistant', 'content': 'It is blue.'}],
+     'rejected': [{'role': 'assistant', 'content': 'It is green.'}]}
+    ```
+
+    Or, with the `map` method of `datasets.Dataset`:
+
+    ```python
+    >>> from trl import extract_prompt
+    >>> from datasets import Dataset
+
+    >>> dataset_dict = {
+    ...     "chosen": [
+    ...         [
+    ...             {"role": "user", "content": "What color is the sky?"},
+    ...             {"role": "assistant", "content": "It is blue."},
+    ...         ],
+    ...         [
+    ...             {"role": "user", "content": "Where is the sun?"},
+    ...             {"role": "assistant", "content": "In the sky."},
+    ...         ],
+    ...     ],
+    ...     "rejected": [
+    ...         [
+    ...             {"role": "user", "content": "What color is the sky?"},
+    ...             {"role": "assistant", "content": "It is green."},
+    ...         ],
+    ...         [
+    ...             {"role": "user", "content": "Where is the sun?"},
+    ...             {"role": "assistant", "content": "In the sea."},
+    ...         ],
+    ...     ],
+    ... }
+    >>> dataset = Dataset.from_dict(dataset_dict)
+    >>> dataset = dataset.map(extract_prompt)
+    >>> dataset[0]
+    {'prompt': [{'role': 'user', 'content': 'What color is the sky?'}],
+     'chosen': [{'role': 'assistant', 'content': 'It is blue.'}],
+     'rejected': [{'role': 'assistant', 'content': 'It is green.'}]}
+    ```
+    """
+    # Some dataset add a `"prompt"` column, even though the prompt is implicit and included in the "chosen" and
+    # "rejected" completions. E.g.:
+    # {"prompt": "What color is the sky?",
+    #  "chosen": [{"role": "user", "content": "What color is the sky?"}, {"role": "assistant", "content": "It is blue."}],
+    #  "rejected": [{"role": "user", "content": "What color is the sky?"}, {"role": "assistant", "content": "It is green."}]}
+    # That's why we check if the prompt is also conversational before deciding not to extract it.
+    if "chosen" not in example or "rejected" not in example:  # not a preference example
+        return example
+    if "response" in example:
+        # Both conversational or both non-conversational
+        chosen_conv = is_conversational({"chosen": example["chosen"]})
+        response_conv = is_conversational({"response": example["response"]})
+        if (chosen_conv and response_conv) or (not chosen_conv and not response_conv):
+            return example
+    return extract_response({"chosen": example["chosen"], "rejected": example["rejected"]})
 
 def maybe_extract_prompt(example: dict[str, list]) -> dict[str, list]:
     r"""
