@@ -591,14 +591,20 @@ class ADPOTrainer(Trainer):
             # Extract response if needed
             if isinstance(dataset, Dataset):  # `IterableDataset.map` does not support `desc`
                 map_kwargs["desc"] = f"Extracting response in {dataset_name} dataset"
-            dataset = dataset.map(maybe_extract_response, **map_kwargs)
+            # dataset = dataset.map(maybe_extract_response, **map_kwargs)
+            # Set load_from_cache_file=False for DEBUGGING
+            dataset = dataset.map(maybe_extract_response, **map_kwargs, load_from_cache_file=False)
             # print("DEBUG: After maybe_extract_response, first 2 rows:", dataset[:2])
 
             # Apply the chat template if needed
             if isinstance(dataset, Dataset):  # `IterableDataset.map` does not support `desc`
                 map_kwargs["desc"] = f"Applying chat template to {dataset_name} dataset"
+            # dataset = dataset.map(
+            #     maybe_apply_chat_template, fn_kwargs={"tokenizer": processing_class, "tools": args.tools}, **map_kwargs
+            # )
+            # Set load_from_cache_file=False for DEBUGGING
             dataset = dataset.map(
-                maybe_apply_chat_template, fn_kwargs={"tokenizer": processing_class, "tools": args.tools}, **map_kwargs
+                maybe_apply_chat_template, fn_kwargs={"tokenizer": processing_class, "tools": args.tools}, **map_kwargs, load_from_cache_file=False
             )
             # print("DEBUG: After maybe_apply_chat_template, first 2 rows:", dataset[:2])
 
@@ -610,9 +616,11 @@ class ADPOTrainer(Trainer):
                 ex = dataset[i]
                 if "response" not in ex or not ex["response"]:
                     print(f"[PRE-TOKENIZATION] Example {i} missing or empty 'response': {ex}")
+            # Set load_from_cache_file=False for DEBUGGING
             dataset = dataset.map(
                 self.tokenize_row if not self.is_vision_model else self.process_row,
                 remove_columns=["chosen", "rejected"],
+                load_from_cache_file=False,
                 fn_kwargs={
                     "processing_class": processing_class,
                     "max_prompt_length": args.max_prompt_length,
