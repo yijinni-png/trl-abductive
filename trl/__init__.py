@@ -46,6 +46,8 @@ _import_structure = {
         "setup_chat_format",
     ],
     "trainer": [
+        "ADPOConfig",
+        "ADPOTrainer",
         "AlignPropConfig",
         "AlignPropTrainer",
         "AllTrueJudge",
