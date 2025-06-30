@@ -159,7 +159,7 @@ def apply_chat_template(
         )
         
         # Apply template to the shared response
-        response_only = tokenizer.apply_chat_template(
+        response = tokenizer.apply_chat_template(
             example["response"], tools=tools, tokenize=False
         )
 
@@ -209,8 +209,8 @@ def apply_chat_template(
         output["completion"] = completion
     if "label" in example:
         output["label"] = example["label"]
-    if "response" in example and "response_only" in locals():
-        output["response"] = response_only
+    if "response" in example:
+        output["response"] = response
 
     return output
 
@@ -268,7 +268,8 @@ def maybe_apply_chat_template(
     {'prompt': '<|user|>\nWhat color is the sky?<|end|>\n<|assistant|>\n', 'completion': 'It is blue.<|end|>\n<|endoftext|>'}
     ```
     """
-    print("DEBUG: Input to maybe_apply_chat_template:", example)
+    if example['chosen'] is None or example['rejected'] is None or example['response'] is None:
+        print("DEBUG: Input to maybe_apply_chat_template:", example)
     if is_conversational(example):
         return apply_chat_template(example, tokenizer, tools)
     else:
@@ -278,11 +279,11 @@ def maybe_apply_chat_template(
 def _unpair_row(examples: list[dict[str, list[dict[str, str]]]]) -> list[dict[str, list[dict[str, str]]]]:
     batch_size = len(examples["chosen"])
     new_rows = {
-        "completion": examples["chosen"] + examples["rejected"],
+        "prompt": examples["chosen"] + examples["rejected"],
         "label": [True] * batch_size + [False] * batch_size,
     }
-    if "prompt" in examples:
-        new_rows["prompt"] = examples["prompt"] + examples["prompt"]
+    if "response" in examples:
+        new_rows["response"] = examples["response"] + examples["response"]
     return new_rows
 
 
@@ -438,12 +439,12 @@ def extract_prompt(example: dict[str, Sequence]) -> dict[str, Sequence]:
 
 def maybe_extract_response(example: dict[str, list]) -> dict[str, list]:
     r"""
-    Extracts the shared prompt from a preference data example, where the prompt is implicit within both the chosen and
+    Extracts the shared response from a preference data example, where the response is implicit within both the chosen and
     rejected completions.
 
-    If the example already contains a `"prompt"` key, the function returns the example as is. Else, the function
-    identifies the longest common sequence (prefix) of conversation turns between the "chosen" and "rejected"
-    completions and extracts this as the prompt. It then removes this prompt from the respective "chosen" and
+    If the example already contains a `"response"` key, the function returns the example as is. Else, the function
+    identifies the longest common sequence (suffix) of conversation turns between the "chosen" and "rejected"
+    completions and extracts this as the response. It then removes this response from the respective "chosen" and
     "rejected" completions.
 
     Args:
@@ -453,71 +454,16 @@ def maybe_extract_response(example: dict[str, list]) -> dict[str, list]:
 
     Returns:
         `dict[str, list]`: A dictionary containing:
-            - `"prompt"`: The longest common prefix between the "chosen" and "rejected" completions.
-            - `"chosen"`: The remainder of the "chosen" completion, with the prompt removed.
-            - `"rejected"`: The remainder of the "rejected" completion, with the prompt removed.
-
-    Examples:
-
-    ```python
-    >>> example = {
-    ...     "chosen": [
-    ...         {"role": "user", "content": "What color is the sky?"},
-    ...         {"role": "assistant", "content": "It is blue."},
-    ...     ],
-    ...     "rejected": [
-    ...         {"role": "user", "content": "What color is the sky?"},
-    ...         {"role": "assistant", "content": "It is green."},
-    ...     ],
-    ... }
-    >>> extract_prompt(example)
-    {'prompt': [{'role': 'user', 'content': 'What color is the sky?'}],
-     'chosen': [{'role': 'assistant', 'content': 'It is blue.'}],
-     'rejected': [{'role': 'assistant', 'content': 'It is green.'}]}
-    ```
-
-    Or, with the `map` method of `datasets.Dataset`:
-
-    ```python
-    >>> from trl import extract_prompt
-    >>> from datasets import Dataset
-
-    >>> dataset_dict = {
-    ...     "chosen": [
-    ...         [
-    ...             {"role": "user", "content": "What color is the sky?"},
-    ...             {"role": "assistant", "content": "It is blue."},
-    ...         ],
-    ...         [
-    ...             {"role": "user", "content": "Where is the sun?"},
-    ...             {"role": "assistant", "content": "In the sky."},
-    ...         ],
-    ...     ],
-    ...     "rejected": [
-    ...         [
-    ...             {"role": "user", "content": "What color is the sky?"},
-    ...             {"role": "assistant", "content": "It is green."},
-    ...         ],
-    ...         [
-    ...             {"role": "user", "content": "Where is the sun?"},
-    ...             {"role": "assistant", "content": "In the sea."},
-    ...         ],
-    ...     ],
-    ... }
-    >>> dataset = Dataset.from_dict(dataset_dict)
-    >>> dataset = dataset.map(extract_prompt)
-    >>> dataset[0]
-    {'prompt': [{'role': 'user', 'content': 'What color is the sky?'}],
-     'chosen': [{'role': 'assistant', 'content': 'It is blue.'}],
-     'rejected': [{'role': 'assistant', 'content': 'It is green.'}]}
-    ```
+            - `"response"`: The longest common suffix between the "chosen" and "rejected" completions.
+            - `"chosen"`: The remainder of the "chosen" completion, with the response removed.
+            - `"rejected"`: The remainder of the "rejected" completion, with the response removed.
     """
-    # Some dataset add a `"prompt"` column, even though the prompt is implicit and included in the "chosen" and
+    # Some dataset add a `"response"` column, even though the response is implicit and included in the "chosen" and
     # "rejected" completions. E.g.:
-    # {"prompt": "What color is the sky?",
+    # {"response": "What color is the sky?",
     #  "chosen": [{"role": "user", "content": "What color is the sky?"}, {"role": "assistant", "content": "It is blue."}],
     #  "rejected": [{"role": "user", "content": "What color is the sky?"}, {"role": "assistant", "content": "It is green."}]}
-    # That's why we check if the prompt is also conversational before deciding not to extract it.
+    # That's why we check if the response is also conversational before deciding not to extract it.
     if "chosen" not in example or "rejected" not in example:  # not a preference example
         return example
     if "response" in example:
@@ -977,7 +923,7 @@ def maybe_convert_to_chatml(example: dict[str, list]) -> dict[str, list]:
     ```
     """
     # List of possible keys containing message lists
-    for key in ["prompt", "completion", "chosen", "rejected", "messages", "conversations"]:
+    for key in ["prompt", 'response', "completion", "chosen", "rejected", "messages", "conversations"]:
         if key in example and isinstance(example[key], list):
             messages = example[key]
             for message in messages:
