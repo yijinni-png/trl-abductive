@@ -601,19 +601,19 @@ class ADPOTrainer(Trainer):
                 map_kwargs["desc"] = f"Extracting response in {dataset_name} dataset"
             # dataset = dataset.map(maybe_extract_response, **map_kwargs)
             # Set load_from_cache_file=False for DEBUGGING
-            dataset = dataset.map(maybe_extract_response, **map_kwargs, load_from_cache_file=False)
+            dataset = dataset.map(maybe_extract_response, **map_kwargs)
             # print("DEBUG: After maybe_extract_response, first 2 rows:", dataset[:2])
 
             # Apply the chat template if needed
             if isinstance(dataset, Dataset):  # `IterableDataset.map` does not support `desc`
                 map_kwargs["desc"] = f"Applying chat template to {dataset_name} dataset"
-            # dataset = dataset.map(
-            #     maybe_apply_chat_template, fn_kwargs={"tokenizer": processing_class, "tools": args.tools}, **map_kwargs
-            # )
-            # Set load_from_cache_file=False for DEBUGGING
             dataset = dataset.map(
-                maybe_apply_chat_template, fn_kwargs={"tokenizer": processing_class, "tools": args.tools}, **map_kwargs, load_from_cache_file=False
+                maybe_apply_chat_template, fn_kwargs={"tokenizer": processing_class, "tools": args.tools}, **map_kwargs
             )
+            # Set load_from_cache_file=False for DEBUGGING
+            # dataset = dataset.map(
+            #     maybe_apply_chat_template, fn_kwargs={"tokenizer": processing_class, "tools": args.tools}, **map_kwargs, load_from_cache_file=False
+            # )
             # print("DEBUG: After maybe_apply_chat_template, first 2 rows:", dataset[:2])
 
             # Tokenize the dataset
@@ -628,7 +628,7 @@ class ADPOTrainer(Trainer):
             dataset = dataset.map(
                 self.tokenize_row if not self.is_vision_model else self.process_row,
                 remove_columns=["chosen", "rejected"],
-                load_from_cache_file=False,
+                # load_from_cache_file=False,
                 fn_kwargs={
                     "processing_class": processing_class,
                     "max_prompt_length": args.max_prompt_length,
@@ -649,11 +649,11 @@ class ADPOTrainer(Trainer):
                 print("DEBUG: Broken row:", example)
             return all(k in example and example[k] and len(example[k]) > 0 for k in ["response_input_ids", "chosen_input_ids", "rejected_input_ids"])
         print("Before filter, dataset length:", len(dataset))
-        dataset = dataset.filter(has_required_keys, load_from_cache_file=False)
+        dataset = dataset.filter(has_required_keys)
         print("After filter, dataset length:", len(dataset))
         print("First 2 examples after filter:", [dataset[i] for i in range(2)])
         # ===========================================
-        dataset = dataset.map(lambda ex, idx: {**ex, "__idx__": idx}, with_indices=True, load_from_cache_file=False)
+        dataset = dataset.map(lambda ex, idx: {**ex, "__idx__": idx}, with_indices=True)
         return dataset
 
 # Modified
