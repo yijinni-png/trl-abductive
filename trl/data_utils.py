@@ -119,7 +119,7 @@ def apply_chat_template(
 
     # Handle the case where we have {"chosen", "rejected", "response"}
     # In this case, chosen and rejected are prompts, and response is the shared ending
-    if "response" in example and "chosen" in example and "rejected" in example and "prompt" not in example:
+    if "response" in example and "chosen" in example and "prompt" not in example:
         # Apply chat template to the prompts (chosen and rejected are prompts in this case)
         last_role_chosen = example["chosen"][-1]["role"]
         last_role_rejected = example["rejected"][-1]["role"]
@@ -268,6 +268,7 @@ def maybe_apply_chat_template(
     {'prompt': '<|user|>\nWhat color is the sky?<|end|>\n<|assistant|>\n', 'completion': 'It is blue.<|end|>\n<|endoftext|>'}
     ```
     """
+    print("DEBUG: Input to maybe_apply_chat_template:", example)
     if is_conversational(example):
         return apply_chat_template(example, tokenizer, tools)
     else:
