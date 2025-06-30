@@ -404,6 +404,14 @@ class ADPOTrainer(Trainer):
 
         # Dataset preparation
         train_dataset = self._prepare_dataset(train_dataset, processing_class, args, "train")
+        print("DEBUG: Checking processed train_dataset for input ids keys...")
+        for i in range(len(train_dataset)):
+            ex = train_dataset[i]
+            missing = [k for k in ["response_input_ids", "chosen_input_ids", "rejected_input_ids"]
+                    if k not in ex or not isinstance(ex[k], list) or len(ex[k]) == 0]
+            if missing:
+                print(f"BAD ROW at {i}: missing keys {missing}, ex: {ex}")
+        print("Check completed.")
         if eval_dataset is not None:
             if isinstance(eval_dataset, dict):
                 eval_dataset = {
@@ -413,14 +421,6 @@ class ADPOTrainer(Trainer):
             else:
                 eval_dataset = self._prepare_dataset(eval_dataset, processing_class, args, "eval")
         
-        print("DEBUG: Checking processed train_dataset for input ids keys...")
-        for i in range(len(train_dataset)):
-            ex = train_dataset[i]
-            missing = [k for k in ["response_input_ids", "chosen_input_ids", "rejected_input_ids"]
-                    if k not in ex or not isinstance(ex[k], list) or len(ex[k]) == 0]
-            if missing:
-                print(f"BAD ROW at {i}: missing keys {missing}, ex: {ex}")
-        print("Check completed.")
         super().__init__(
             model=model,
             args=args,
@@ -759,7 +759,7 @@ class ADPOTrainer(Trainer):
         # Instead, we set them to the columns expected by `DataCollatorForPreference`, hence the override.
         if self._signature_columns is None:
             self._signature_columns = [
-                "prompt_input_ids",
+                "response_input_ids",
                 "chosen_input_ids",
                 "rejected_input_ids",
                 "image_sizes",
@@ -903,14 +903,14 @@ class ADPOTrainer(Trainer):
             batch (`dict[str, Union[list, torch.LongTensor]]`):
                 A batch of input data. The batch must contain the following keys:
 
-                - `"prompt_input_ids"`: Tensor of shape `(batch_size, prompt_length)` representing the prompt input
+                - `"response_input_ids"`: Tensor of shape `(batch_size, prompt_length)` representing the prompt input
                   IDs.
                 - `"chosen_input_ids"`: Tensor of shape `(batch_size, chosen_length)` representing the chosen
                   completion input IDs.
                 - `"rejected_input_ids"`: Tensor of shape `(batch_size, rejected_length)` representing the rejected
                   completion input IDs.
-                - `"prompt_pixel_values"` (optional): Tensor for pixel values, if available.
-                - `"prompt_pixel_attention_mask"` (optional): Tensor for pixel attention masks, if available.
+                - `"response_pixel_values"` (optional): Tensor for pixel values, if available.
+                - `"response_pixel_attention_mask"` (optional): Tensor for pixel attention masks, if available.
 
             padding_value (`int`):
                 The padding value to use for the concatenated completion sequences (`chosen_input_ids` and
