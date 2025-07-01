@@ -268,8 +268,8 @@ def maybe_apply_chat_template(
     {'prompt': '<|user|>\nWhat color is the sky?<|end|>\n<|assistant|>\n', 'completion': 'It is blue.<|end|>\n<|endoftext|>'}
     ```
     """
-    if example['chosen'] is None or example['rejected'] is None or example['response'] is None:
-        print("DEBUG: Input to maybe_apply_chat_template:", example)
+    # if example['chosen'] is None or example['rejected'] is None or example['response'] is None:
+    #     print("DEBUG: Input to maybe_apply_chat_template:", example)
     if is_conversational(example):
         return apply_chat_template(example, tokenizer, tools)
     else:
