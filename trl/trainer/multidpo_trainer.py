@@ -2091,6 +2091,23 @@ class MultiDPOTrainer(Trainer):
         # Compute DPO and ADPO specific accuracies
         dpo_accuracies = (model_output["chosen_logps_dpo"] > model_output["rejected_logps_dpo"]).float()
         adpo_accuracies = (model_output["chosen_logps_adpo"] > model_output["rejected_logps_adpo"]).float()
+        
+        # Debug accuracy computation every 10 steps
+        if hasattr(self, 'state') and self.state.global_step % 10 == 0:
+            if hasattr(self, 'accelerator') and self.accelerator.is_main_process:
+                print(f"\n🎯 Accuracy Debug (Step {self.state.global_step}):")
+                print(f"  DPO: chosen_logps={model_output['chosen_logps_dpo'].mean().item():.2f}, rejected_logps={model_output['rejected_logps_dpo'].mean().item():.2f}")
+                print(f"  DPO accuracy: {dpo_accuracies.mean().item():.3f}")
+                print(f"  ADPO: chosen_logps={model_output['chosen_logps_adpo'].mean().item():.2f}, rejected_logps={model_output['rejected_logps_adpo'].mean().item():.2f}")
+                print(f"  ADPO accuracy: {adpo_accuracies.mean().item():.3f}")
+                
+                # Show first few examples to understand the pattern
+                if len(model_output['chosen_logps_adpo']) >= 3:
+                    for i in range(min(3, len(model_output['chosen_logps_adpo']))):
+                        chosen_adpo = model_output['chosen_logps_adpo'][i].item()
+                        rejected_adpo = model_output['rejected_logps_adpo'][i].item()
+                        correct = chosen_adpo > rejected_adpo
+                        print(f"  Example {i}: chosen={chosen_adpo:.2f}, rejected={rejected_adpo:.2f}, correct={correct}")
 
         if self.args.rpo_alpha is not None:
             losses = losses + self.args.rpo_alpha * model_output["nll_loss"]  # RPO loss from V3 of the paper
@@ -2105,8 +2122,8 @@ class MultiDPOTrainer(Trainer):
         metrics[f"{prefix}rewards/chosen"] = self.accelerator.gather_for_metrics(chosen_rewards).mean().item()
         metrics[f"{prefix}rewards/rejected"] = self.accelerator.gather_for_metrics(rejected_rewards).mean().item()
         metrics[f"{prefix}rewards/accuracies"] = self.accelerator.gather_for_metrics(reward_accuracies).mean().item()
-        metrics[f"{prefix}rewards/dpo_accuracies"] = self.accelerator.gather_for_metrics(dpo_accuracies).mean().item()
-        metrics[f"{prefix}rewards/adpo_accuracies"] = self.accelerator.gather_for_metrics(adpo_accuracies).mean().item()
+        metrics[f"{prefix}dpo_accuracies"] = self.accelerator.gather_for_metrics(dpo_accuracies).mean().item()
+        metrics[f"{prefix}adpo_accuracies"] = self.accelerator.gather_for_metrics(adpo_accuracies).mean().item()
         metrics[f"{prefix}rewards/margins"] = (
             self.accelerator.gather_for_metrics(chosen_rewards - rejected_rewards).mean().item()
         )
@@ -2483,14 +2500,19 @@ class MultiDPOTrainer(Trainer):
             
             # Log comprehensive debugging info
             if self.accelerator.is_main_process:
-                total_update = sum(update[3] for update in param_updates) if param_updates else 0
+                # Calculate meaningful parameter update metrics
+                avg_update = sum(update[3] for update in param_updates) / len(param_updates) if param_updates else 0
                 total_grad_norm = sum(grad[1] for grad in grad_info)
                 max_update = max(param_updates, key=lambda x: x[3]) if param_updates else None
                 max_grad = max(grad_info, key=lambda x: x[1]) if grad_info else None
                 
+                # Calculate parameter update norm (RMS of all updates)
+                param_update_norm = (sum(update[3]**2 for update in param_updates) / len(param_updates))**0.5 if param_updates else 0
+                
                 print(f"\n🔍 Step {self.state.global_step} Debug Info:")
                 print(f"  📊 Loss: {loss.item():.6f}")
-                print(f"  📈 Total parameter change: {total_update:.8f}")
+                print(f"  📈 Avg parameter change: {avg_update:.8f}")
+                print(f"  📐 Parameter update norm (RMS): {param_update_norm:.8f}")
                 print(f"  📉 Total gradient norm: {total_grad_norm:.8f}")
                 if max_update:
                     print(f"  🎯 Max param change: {max_update[0][:50]}... = {max_update[3]:.8f}")
@@ -2498,7 +2520,7 @@ class MultiDPOTrainer(Trainer):
                     print(f"  ⚡ Max gradient: {max_grad[0][:50]}... = {max_grad[1]:.8f}")
                 
                 # Enhanced warnings
-                if total_update < 1e-8:
+                if avg_update < 1e-8:
                     print("⚠️  WARNING: Very small parameter updates detected!")
                     if total_grad_norm < 1e-8:
                         print("⚠️  CRITICAL: No gradients detected! Model not learning!")
