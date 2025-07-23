@@ -55,7 +55,7 @@ from ..data_utils_multi import maybe_apply_chat_template
 from ..models import create_reference_model, prepare_deepspeed
 from ..models.utils import prepare_fsdp
 from .callbacks import SyncRefModelCallback
-from .dpo_config import DPOConfig, FDivergenceConstants, FDivergenceType
+from .multidpo_config import MultiDPOConfig, FDivergenceConstants, FDivergenceType
 from .utils import (
     RunningMoments,
     cap_exp,
@@ -133,45 +133,105 @@ class DataCollatorForPreference(DataCollatorMixin):
     return_tensors: str = "pt"
 
     def torch_call(self, examples: list[Union[list[int], Any, dict[str, Any]]]) -> dict[str, Any]:
-        # Convert to tensor
+        # Check if this is MultiDPO format (6-key) or standard DPO format (3-key)
+        multidpo_keys = ["chosen_response_input_ids", "rejected_response_input_ids", "chosen_prompt_input_ids", "rejected_prompt_input_ids", "response_input_ids"]
+        is_multidpo_format = all(key in examples[0] for key in multidpo_keys)
+        
+        # Convert to tensor - common fields
         prompt_input_ids = [torch.tensor(example["prompt_input_ids"]) for example in examples]
         prompt_attention_mask = [torch.ones_like(input_ids) for input_ids in prompt_input_ids]
-        chosen_input_ids = [torch.tensor(example["chosen_input_ids"]) for example in examples]
-        chosen_attention_mask = [torch.ones_like(input_ids) for input_ids in chosen_input_ids]
-        rejected_input_ids = [torch.tensor(example["rejected_input_ids"]) for example in examples]
-        rejected_attention_mask = [torch.ones_like(input_ids) for input_ids in rejected_input_ids]
+        
+        if is_multidpo_format:
+            # MultiDPO 6-key format
+            chosen_response_input_ids = [torch.tensor(example["chosen_response_input_ids"]) for example in examples]
+            chosen_response_attention_mask = [torch.ones_like(input_ids) for input_ids in chosen_response_input_ids]
+            rejected_response_input_ids = [torch.tensor(example["rejected_response_input_ids"]) for example in examples]
+            rejected_response_attention_mask = [torch.ones_like(input_ids) for input_ids in rejected_response_input_ids]
+            chosen_prompt_input_ids = [torch.tensor(example["chosen_prompt_input_ids"]) for example in examples]
+            chosen_prompt_attention_mask = [torch.ones_like(input_ids) for input_ids in chosen_prompt_input_ids]
+            rejected_prompt_input_ids = [torch.tensor(example["rejected_prompt_input_ids"]) for example in examples]
+            rejected_prompt_attention_mask = [torch.ones_like(input_ids) for input_ids in rejected_prompt_input_ids]
+            response_input_ids = [torch.tensor(example["response_input_ids"]) for example in examples]
+            response_attention_mask = [torch.ones_like(input_ids) for input_ids in response_input_ids]
+        else:
+            # Standard DPO 3-key format (backward compatibility)
+            chosen_input_ids = [torch.tensor(example["chosen_input_ids"]) for example in examples]
+            chosen_attention_mask = [torch.ones_like(input_ids) for input_ids in chosen_input_ids]
+            rejected_input_ids = [torch.tensor(example["rejected_input_ids"]) for example in examples]
+            rejected_attention_mask = [torch.ones_like(input_ids) for input_ids in rejected_input_ids]
+        
+        # Vision support
         if "pixel_values" in examples[0]:
             pixel_values = [torch.tensor(example["pixel_values"]) for example in examples]
         if "pixel_attention_mask" in examples[0]:
             pixel_attention_mask = [torch.tensor(example["pixel_attention_mask"]) for example in examples]
+            
+        # Reference logps support (both formats)
         if "ref_chosen_logps" in examples[0] and "ref_rejected_logps" in examples[0]:
             ref_chosen_logps = torch.tensor([example["ref_chosen_logps"] for example in examples])
             ref_rejected_logps = torch.tensor([example["ref_rejected_logps"] for example in examples])
+        
+        # MultiDPO 4-part reference logps
+        if "ref_chosen_logps_dpo" in examples[0]:
+            ref_chosen_logps_dpo = torch.tensor([example["ref_chosen_logps_dpo"] for example in examples])
+            ref_rejected_logps_dpo = torch.tensor([example["ref_rejected_logps_dpo"] for example in examples])
+            ref_chosen_logps_adpo = torch.tensor([example["ref_chosen_logps_adpo"] for example in examples])
+            ref_rejected_logps_adpo = torch.tensor([example["ref_rejected_logps_adpo"] for example in examples])
 
-        # Pad
+        # Pad and build output
         output = {}
         output["prompt_input_ids"] = pad(prompt_input_ids, padding_value=self.pad_token_id, padding_side="left")
         output["prompt_attention_mask"] = pad(prompt_attention_mask, padding_value=0, padding_side="left")
-        output["chosen_input_ids"] = pad(chosen_input_ids, padding_value=self.pad_token_id)
-        output["chosen_attention_mask"] = pad(chosen_attention_mask, padding_value=0)
-        output["rejected_input_ids"] = pad(rejected_input_ids, padding_value=self.pad_token_id)
-        output["rejected_attention_mask"] = pad(rejected_attention_mask, padding_value=0)
+        
+        if is_multidpo_format:
+            # MultiDPO format output
+            output["chosen_response_input_ids"] = pad(chosen_response_input_ids, padding_value=self.pad_token_id)
+            output["chosen_response_attention_mask"] = pad(chosen_response_attention_mask, padding_value=0)
+            output["rejected_response_input_ids"] = pad(rejected_response_input_ids, padding_value=self.pad_token_id)
+            output["rejected_response_attention_mask"] = pad(rejected_response_attention_mask, padding_value=0)
+            output["chosen_prompt_input_ids"] = pad(chosen_prompt_input_ids, padding_value=self.pad_token_id, padding_side="left")
+            output["chosen_prompt_attention_mask"] = pad(chosen_prompt_attention_mask, padding_value=0, padding_side="left")
+            output["rejected_prompt_input_ids"] = pad(rejected_prompt_input_ids, padding_value=self.pad_token_id, padding_side="left")
+            output["rejected_prompt_attention_mask"] = pad(rejected_prompt_attention_mask, padding_value=0, padding_side="left")
+            output["response_input_ids"] = pad(response_input_ids, padding_value=self.pad_token_id)
+            output["response_attention_mask"] = pad(response_attention_mask, padding_value=0)
+        else:
+            # Standard DPO format output (backward compatibility)
+            output["chosen_input_ids"] = pad(chosen_input_ids, padding_value=self.pad_token_id)
+            output["chosen_attention_mask"] = pad(chosen_attention_mask, padding_value=0)
+            output["rejected_input_ids"] = pad(rejected_input_ids, padding_value=self.pad_token_id)
+            output["rejected_attention_mask"] = pad(rejected_attention_mask, padding_value=0)
+        
+        # Vision fields
         if "pixel_values" in examples[0]:
             output["pixel_values"] = pad(pixel_values, padding_value=0.0)
         if "pixel_attention_mask" in examples[0]:
             output["pixel_attention_mask"] = pad(pixel_attention_mask, padding_value=0)
         if "image_sizes" in examples[0]:
             output["image_sizes"] = torch.tensor([example["image_sizes"] for example in examples])
+            
+        # Reference logps
         if "ref_chosen_logps" in examples[0] and "ref_rejected_logps" in examples[0]:
             output["ref_chosen_logps"] = ref_chosen_logps
             output["ref_rejected_logps"] = ref_rejected_logps
+            
+        # MultiDPO 4-part reference logps
+        if "ref_chosen_logps_dpo" in examples[0]:
+            output["ref_chosen_logps_dpo"] = ref_chosen_logps_dpo
+            output["ref_rejected_logps_dpo"] = ref_rejected_logps_dpo
+            output["ref_chosen_logps_adpo"] = ref_chosen_logps_adpo
+            output["ref_rejected_logps_adpo"] = ref_rejected_logps_adpo
 
         return output
 
 
-class multiDPOTrainer(Trainer):
+class MultiDPOTrainer(Trainer):
     """
-    Trainer for Direct Preference Optimization (DPO) method.
+    Trainer for Multi-objective Direct Preference Optimization (MultiDPO) method.
+
+    MultiDPO combines DPO and ADPO losses: λ * DPO_loss + (1-λ) * ADPO_loss
+    - DPO loss: compares chosen vs rejected responses given the same prompt
+    - ADPO loss: compares the same response given chosen vs rejected prompts
 
     This class is a wrapper around the [`transformers.Trainer`] class and inherits all of its attributes and methods.
 
@@ -189,18 +249,18 @@ class multiDPOTrainer(Trainer):
             Hugging Face transformer model with a casual language modelling head. Used for implicit reward computation
             and loss. If no reference model is provided, the trainer will create a reference model with the same
             architecture as the model to be optimized.
-        args ([`DPOConfig`], *optional*, defaults to `None`):
+        args ([`MultiDPOConfig`], *optional*, defaults to `None`):
             Configuration for this trainer. If `None`, a default configuration is used.
         data_collator (`DataCollator`, *optional*):
             Function to use to form a batch from a list of elements of the processed `train_dataset` or `eval_dataset`.
             Will default to [`DataCollatorForPreference`].
         train_dataset ([`~datasets.Dataset`] or [`~datasets.IterableDataset`]):
-            Dataset to use for training. DPO supports [preference](#preference) type and. The format of the samples can
-            be either:
-
-            - [Standard](dataset_formats#standard): Each sample contains plain text.
-            - [Conversational](dataset_formats#conversational): Each sample contains structured messages (e.g., role
-              and content).
+            Dataset to use for training. MultiDPO supports two formats:
+            
+            - MultiDPO format (6-key): Each sample contains `prompt`, `chosen_response`, `rejected_response`, 
+              `chosen_prompt`, `rejected_prompt`, and `response` keys.
+            - Standard DPO format (3-key): Each sample contains `prompt`, `chosen`, and `rejected` keys 
+              (backward compatibility).
         eval_dataset ([`~datasets.Dataset`], [`~datasets.IterableDataset`] or `dict[str, Union[Dataset, IterableDataset]]`):
             Dataset to use for evaluation. It must meet the same requirements as `train_dataset`.
         processing_class ([`~transformers.PreTrainedTokenizerBase`], *optional*, defaults to `None`):
@@ -240,7 +300,7 @@ class multiDPOTrainer(Trainer):
         self,
         model: Union[str, nn.Module, PreTrainedModel],
         ref_model: Optional[Union[PreTrainedModel, nn.Module, str]] = None,
-        args: Optional[DPOConfig] = None,
+        args: Optional[MultiDPOConfig] = None,
         data_collator: Optional[DataCollator] = None,  # type: ignore
         train_dataset: Optional[Union[Dataset, IterableDataset]] = None,
         eval_dataset: Optional[Union[Dataset, IterableDataset, dict[str, Union[Dataset, IterableDataset]]]] = None,
@@ -258,7 +318,7 @@ class multiDPOTrainer(Trainer):
         model_id = model if isinstance(model, str) else model.config._name_or_path
         if args is None:
             model_name = model_id.split("/")[-1]
-            args = DPOConfig(f"{model_name}-DPO")
+            args = MultiDPOConfig(f"{model_name}-MultiDPO")
 
         # Handle the tokenizer
         if processing_class is None:
@@ -273,8 +333,8 @@ class multiDPOTrainer(Trainer):
                 self.padding_value = processing_class.tokenizer.pad_token_id
             else:
                 raise ValueError(
-                    "`padding_value` is not specified in `DPOConfig`, and `pad_token_id` is missing in the "
-                    "`processing_class`. Please either set the `padding_value` argument in `DPOConfig`, or set "
+                    "`padding_value` is not specified in `MultiDPOConfig`, and `pad_token_id` is missing in the "
+                    "`processing_class`. Please either set the `padding_value` argument in `MultiDPOConfig`, or set "
                     "`tokenizer.pad_token` (e.g., `tokenizer.pad_token = tokenizer.eos_token`) before instantiating "
                     "the trainer."
                 )
@@ -288,7 +348,7 @@ class multiDPOTrainer(Trainer):
 
         if args.model_init_kwargs is not None and not isinstance(model, str):
             warnings.warn(
-                "You passed model_init_kwargs to the `DPOConfig`, but your model is already instantiated. "
+                "You passed model_init_kwargs to the `MultiDPOConfig`, but your model is already instantiated. "
                 "The `model_init_kwargs` will be ignored."
             )
         if isinstance(model, str):
@@ -296,7 +356,7 @@ class multiDPOTrainer(Trainer):
 
         if args.ref_model_init_kwargs is not None and not isinstance(ref_model, str):
             warnings.warn(
-                "You passed ref_model_init_kwargs to the `DPOConfig`, but your ref_model is already instantiated. "
+                "You passed ref_model_init_kwargs to the `MultiDPOConfig`, but your ref_model is already instantiated. "
                 "The `ref_model_init_kwargs` will be ignored."
             )
         if isinstance(ref_model, str):
@@ -506,7 +566,7 @@ class multiDPOTrainer(Trainer):
         if self.loss_type == "bco_pair":
             self.running = RunningMoments(self.accelerator)
 
-    def _create_model_from_path(self, model_path: str, args: DPOConfig, is_ref: bool = False) -> PreTrainedModel:
+    def _create_model_from_path(self, model_path: str, args: MultiDPOConfig, is_ref: bool = False) -> PreTrainedModel:
         """Creates a model from a path or model identifier."""
         if not is_ref:
             model_init_kwargs = args.model_init_kwargs or {}
@@ -522,7 +582,7 @@ class multiDPOTrainer(Trainer):
             model_init_kwargs["torch_dtype"] = torch_dtype
         else:
             raise ValueError(
-                "Invalid `torch_dtype` passed to `DPOConfig`. Expected either 'auto' or a string representing "
+                "Invalid `torch_dtype` passed to `MultiDPOConfig`. Expected either 'auto' or a string representing "
                 f"a `torch.dtype` (e.g., 'float32'), but got {torch_dtype}."
             )
         # Disable caching if gradient checkpointing is enabled (not supported)
@@ -534,7 +594,7 @@ class multiDPOTrainer(Trainer):
         return model
 
     def _prepare_peft_model(
-        self, model: PreTrainedModel, ref_model: PreTrainedModel, peft_config: Any, args: DPOConfig
+        self, model: PreTrainedModel, ref_model: PreTrainedModel, peft_config: Any, args: MultiDPOConfig
     ) -> PreTrainedModel:
         """Prepares a model for PEFT training."""
         # Initialize this variable to False. This helps tracking the case when `peft_module_casting_to_bf16`
@@ -586,7 +646,7 @@ class multiDPOTrainer(Trainer):
 
         return model
 
-    def _prepare_gradient_checkpointing(self, model: PreTrainedModel, args: DPOConfig):
+    def _prepare_gradient_checkpointing(self, model: PreTrainedModel, args: MultiDPOConfig):
         """Prepare the gradienting checkpointing for the model."""
         # For models that use gradient_checkpointing, we need to attach a hook that enables input
         # to explicitly have `requires_grad=True`, otherwise training will either silently
@@ -608,7 +668,7 @@ class multiDPOTrainer(Trainer):
         self,
         dataset: Union[Dataset, IterableDataset],
         processing_class: Union[PreTrainedTokenizerBase, BaseImageProcessor, FeatureExtractionMixin, ProcessorMixin],
-        args: DPOConfig,
+        args: MultiDPOConfig,
         dataset_name: str,
     ) -> Union[Dataset, IterableDataset]:
         # Build the kwargs for the `map` function
@@ -634,9 +694,23 @@ class multiDPOTrainer(Trainer):
             if isinstance(dataset, Dataset):  # `IterableDataset.map` does not support `desc`
                 map_kwargs["desc"] = f"Tokenizing {dataset_name} dataset"
 
+            # Determine which columns to remove based on dataset format
+            sample_item = dataset[0] if hasattr(dataset, '__getitem__') else next(iter(dataset.take(1)))
+            multidpo_keys = ["chosen_response", "rejected_response", "chosen_prompt", "rejected_prompt", "response"]
+            standard_dpo_keys = ["chosen", "rejected"]
+            
+            is_multidpo_format = all(key in sample_item for key in multidpo_keys)
+            
+            if is_multidpo_format:
+                # Remove MultiDPO format columns after tokenization
+                columns_to_remove = multidpo_keys + ["prompt"]  # Keep tokenized versions
+            else:
+                # Remove standard DPO format columns after tokenization
+                columns_to_remove = standard_dpo_keys  # Keep prompt for backward compatibility
+            
             dataset = dataset.map(
                 self.tokenize_row if not self.is_vision_model else self.process_row,
-                remove_columns=["chosen", "rejected"],
+                remove_columns=columns_to_remove,
                 fn_kwargs={
                     "processing_class": processing_class,
                     "max_prompt_length": args.max_prompt_length,
@@ -652,11 +726,20 @@ class multiDPOTrainer(Trainer):
     @staticmethod
     def tokenize_row(features, processing_class, max_prompt_length, max_completion_length, add_special_tokens):
         """
-        Tokenize a row of the dataset.
+        Tokenize a row of the dataset for MultiDPO training.
 
         Args:
             features (`dict[str, str]`):
-                Row of the dataset, should contain the keys `"prompt"`, `"chosen"`, and `"rejected"`.
+                Row of the dataset, should contain the MultiDPO keys:
+                - `"prompt"`: Original prompt/question
+                - `"chosen_response"`: Preferred response to the prompt  
+                - `"rejected_response"`: Non-preferred response to the prompt
+                - `"chosen_prompt"`: Preferred version of the prompt/question
+                - `"rejected_prompt"`: Non-preferred version of the prompt/question
+                - `"response"`: Response that works with both chosen and rejected prompts
+                
+                For backward compatibility, also supports standard DPO format:
+                - `"prompt"`, `"chosen"`, `"rejected"`
             processing_class (`PreTrainedTokenizerBase`):
                 Processing class used to process the data.
             max_prompt_length (`int` or `None`):
@@ -670,104 +753,293 @@ class multiDPOTrainer(Trainer):
 
         Returns:
             `dict[str, list[int]]`:
-                Tokenized sequences with the keys `"prompt_input_ids"`, `"chosen_input_ids"`, and
-                `"rejected_input_ids".
+                For MultiDPO format: Tokenized sequences with the keys `"prompt_input_ids"`, `"chosen_response_input_ids"`, 
+                `"rejected_response_input_ids"`, `"chosen_prompt_input_ids"`, `"rejected_prompt_input_ids"`, and `"response_input_ids"`.
+                
+                For backward compatibility: `"prompt_input_ids"`, `"chosen_input_ids"`, and `"rejected_input_ids"`.
 
         Example:
         ```python
         >>> from transformers import GPT2Tokenizer
 
         >>> tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-        >>> features = {"prompt": "The sky is", "chosen": " blue", "rejected": " green"}
-        >>> DPOTrainer.tokenize_row(
-        ...     features, tokenizer, max_prompt_length=3, max_completion_length=3, add_special_tokens=False
+        >>> # MultiDPO format
+        >>> features = {
+        ...     "prompt": "What is the capital?", 
+        ...     "chosen_response": "Paris", 
+        ...     "rejected_response": "London",
+        ...     "chosen_prompt": "What is the capital of France?", 
+        ...     "rejected_prompt": "What is the capital of England?", 
+        ...     "response": "Paris"
+        ... }
+        >>> MultiDPOTrainer.tokenize_row(
+        ...     features, tokenizer, max_prompt_length=10, max_completion_length=5, add_special_tokens=False
         ... )
-        {'prompt_input_ids': [464, 6766, 318], 'chosen_input_ids': [4171, 50256], 'rejected_input_ids': [4077, 50256]}
+        # Returns 6-key MultiDPO format
         ```
         """
         tokenizer = processing_class  # the processing class is a tokenizer
-        prompt_input_ids = tokenizer(features["prompt"], add_special_tokens=False)["input_ids"]
-        chosen_input_ids = tokenizer(features["chosen"], add_special_tokens=False)["input_ids"]
-        rejected_input_ids = tokenizer(features["rejected"], add_special_tokens=False)["input_ids"]
+        
+        # Check if this is MultiDPO format (6 keys) or standard DPO format (3 keys)
+        multidpo_keys = ["prompt", "chosen_response", "rejected_response", "chosen_prompt", "rejected_prompt", "response"]
+        standard_dpo_keys = ["prompt", "chosen", "rejected"]
+        
+        is_multidpo_format = all(key in features for key in multidpo_keys)
+        is_standard_dpo_format = all(key in features for key in standard_dpo_keys)
+        
+        if is_multidpo_format:
+            # MultiDPO 6-key format
+            prompt_input_ids = tokenizer(features["prompt"], add_special_tokens=False)["input_ids"]
+            chosen_response_input_ids = tokenizer(features["chosen_response"], add_special_tokens=False)["input_ids"]
+            rejected_response_input_ids = tokenizer(features["rejected_response"], add_special_tokens=False)["input_ids"]
+            chosen_prompt_input_ids = tokenizer(features["chosen_prompt"], add_special_tokens=False)["input_ids"]
+            rejected_prompt_input_ids = tokenizer(features["rejected_prompt"], add_special_tokens=False)["input_ids"]
+            response_input_ids = tokenizer(features["response"], add_special_tokens=False)["input_ids"]
 
-        # Add special tokens (typically for encoder-decoder models)
-        if add_special_tokens:
-            if tokenizer.bos_token_id is not None:
-                prompt_input_ids = [tokenizer.bos_token_id] + prompt_input_ids
-            if tokenizer.eos_token_id is not None:
-                prompt_input_ids = prompt_input_ids + [tokenizer.eos_token_id]
-        chosen_input_ids = chosen_input_ids + [tokenizer.eos_token_id]
-        rejected_input_ids = rejected_input_ids + [tokenizer.eos_token_id]
+            # Add special tokens (typically for encoder-decoder models)
+            if add_special_tokens:
+                if tokenizer.bos_token_id is not None:
+                    prompt_input_ids = [tokenizer.bos_token_id] + prompt_input_ids
+                    chosen_prompt_input_ids = [tokenizer.bos_token_id] + chosen_prompt_input_ids
+                    rejected_prompt_input_ids = [tokenizer.bos_token_id] + rejected_prompt_input_ids
+                if tokenizer.eos_token_id is not None:
+                    prompt_input_ids = prompt_input_ids + [tokenizer.eos_token_id]
+                    chosen_prompt_input_ids = chosen_prompt_input_ids + [tokenizer.eos_token_id]
+                    rejected_prompt_input_ids = rejected_prompt_input_ids + [tokenizer.eos_token_id]
+            
+            # Add EOS tokens to all responses
+            chosen_response_input_ids = chosen_response_input_ids + [tokenizer.eos_token_id]
+            rejected_response_input_ids = rejected_response_input_ids + [tokenizer.eos_token_id]
+            response_input_ids = response_input_ids + [tokenizer.eos_token_id]
 
-        # Truncate prompt and completion sequences
-        if max_prompt_length is not None:
-            prompt_input_ids = prompt_input_ids[-max_prompt_length:]
-        if max_completion_length is not None:
-            chosen_input_ids = chosen_input_ids[:max_completion_length]
-            rejected_input_ids = rejected_input_ids[:max_completion_length]
+            # Truncate prompt sequences
+            if max_prompt_length is not None:
+                prompt_input_ids = prompt_input_ids[-max_prompt_length:]
+                chosen_prompt_input_ids = chosen_prompt_input_ids[-max_prompt_length:]
+                rejected_prompt_input_ids = rejected_prompt_input_ids[-max_prompt_length:]
+            
+            # Truncate completion sequences
+            if max_completion_length is not None:
+                chosen_response_input_ids = chosen_response_input_ids[:max_completion_length]
+                rejected_response_input_ids = rejected_response_input_ids[:max_completion_length]
+                response_input_ids = response_input_ids[:max_completion_length]
 
-        return {
-            "prompt_input_ids": prompt_input_ids,
-            "chosen_input_ids": chosen_input_ids,
-            "rejected_input_ids": rejected_input_ids,
-        }
+            return {
+                "prompt_input_ids": prompt_input_ids,
+                "chosen_response_input_ids": chosen_response_input_ids,
+                "rejected_response_input_ids": rejected_response_input_ids,
+                "chosen_prompt_input_ids": chosen_prompt_input_ids,
+                "rejected_prompt_input_ids": rejected_prompt_input_ids,
+                "response_input_ids": response_input_ids,
+            }
+            
+        elif is_standard_dpo_format:
+            # Standard DPO 3-key format (backward compatibility)
+            prompt_input_ids = tokenizer(features["prompt"], add_special_tokens=False)["input_ids"]
+            chosen_input_ids = tokenizer(features["chosen"], add_special_tokens=False)["input_ids"]
+            rejected_input_ids = tokenizer(features["rejected"], add_special_tokens=False)["input_ids"]
+
+            # Add special tokens (typically for encoder-decoder models)
+            if add_special_tokens:
+                if tokenizer.bos_token_id is not None:
+                    prompt_input_ids = [tokenizer.bos_token_id] + prompt_input_ids
+                if tokenizer.eos_token_id is not None:
+                    prompt_input_ids = prompt_input_ids + [tokenizer.eos_token_id]
+            chosen_input_ids = chosen_input_ids + [tokenizer.eos_token_id]
+            rejected_input_ids = rejected_input_ids + [tokenizer.eos_token_id]
+
+            # Truncate prompt and completion sequences
+            if max_prompt_length is not None:
+                prompt_input_ids = prompt_input_ids[-max_prompt_length:]
+            if max_completion_length is not None:
+                chosen_input_ids = chosen_input_ids[:max_completion_length]
+                rejected_input_ids = rejected_input_ids[:max_completion_length]
+
+            return {
+                "prompt_input_ids": prompt_input_ids,
+                "chosen_input_ids": chosen_input_ids,
+                "rejected_input_ids": rejected_input_ids,
+            }
+        else:
+            # Invalid format
+            available_keys = list(features.keys())
+            raise ValueError(
+                f"Invalid dataset format. Expected either:\n"
+                f"- MultiDPO format with keys: {multidpo_keys}\n"
+                f"- Standard DPO format with keys: {standard_dpo_keys}\n"
+                f"Got keys: {available_keys}"
+            )
 
     @staticmethod
     def process_row(features, processing_class, max_prompt_length, max_completion_length, add_special_tokens):
         """
-        Same as `tokenize_row` but for vision models. Please refer to `tokenize_row` for more information.
+        Same as `tokenize_row` but for vision models with MultiDPO support. Please refer to `tokenize_row` for more information.
         """
         processor, tokenizer = processing_class, processing_class.tokenizer  # the processing class is a processor
-        processed_features = processor(images=features["images"], text=features["prompt"], add_special_tokens=False)
+        
+        # Check if this is MultiDPO format (6 keys) or standard DPO format (3 keys)
+        multidpo_keys = ["prompt", "chosen_response", "rejected_response", "chosen_prompt", "rejected_prompt", "response"]
+        standard_dpo_keys = ["prompt", "chosen", "rejected"]
+        
+        is_multidpo_format = all(key in features for key in multidpo_keys)
+        is_standard_dpo_format = all(key in features for key in standard_dpo_keys)
+        
+        if is_multidpo_format:
+            # MultiDPO format for vision models
+            # Process main prompt with images
+            processed_features = processor(images=features["images"], text=features["prompt"], add_special_tokens=False)
+            prompt_input_ids = processed_features["input_ids"][0]
+            pixel_values = processed_features["pixel_values"][0]
+            
+            # Process chosen and rejected prompts (may have different images)
+            if "chosen_images" in features:
+                chosen_processed = processor(images=features["chosen_images"], text=features["chosen_prompt"], add_special_tokens=False)
+                chosen_prompt_input_ids = chosen_processed["input_ids"][0]
+                chosen_pixel_values = chosen_processed["pixel_values"][0]
+            else:
+                # Use same images with different prompt text
+                chosen_processed = processor(images=features["images"], text=features["chosen_prompt"], add_special_tokens=False)
+                chosen_prompt_input_ids = chosen_processed["input_ids"][0] 
+                chosen_pixel_values = pixel_values  # Reuse same images
+                
+            if "rejected_images" in features:
+                rejected_processed = processor(images=features["rejected_images"], text=features["rejected_prompt"], add_special_tokens=False)
+                rejected_prompt_input_ids = rejected_processed["input_ids"][0]
+                rejected_pixel_values = rejected_processed["pixel_values"][0]
+            else:
+                # Use same images with different prompt text
+                rejected_processed = processor(images=features["images"], text=features["rejected_prompt"], add_special_tokens=False)
+                rejected_prompt_input_ids = rejected_processed["input_ids"][0]
+                rejected_pixel_values = pixel_values  # Reuse same images
+            
+            # Tokenize responses
+            chosen_response_input_ids = tokenizer(features["chosen_response"], add_special_tokens=False)["input_ids"]
+            rejected_response_input_ids = tokenizer(features["rejected_response"], add_special_tokens=False)["input_ids"]
+            response_input_ids = tokenizer(features["response"], add_special_tokens=False)["input_ids"]
 
-        prompt_input_ids = processed_features["input_ids"][0]
-        pixel_values = processed_features["pixel_values"][0]
-        chosen_input_ids = tokenizer(features["chosen"], add_special_tokens=False)["input_ids"]
-        rejected_input_ids = tokenizer(features["rejected"], add_special_tokens=False)["input_ids"]
+            # Add special tokens (typically for encoder-decoder models)
+            if add_special_tokens:
+                if tokenizer.bos_token_id is not None:
+                    prompt_input_ids = [tokenizer.bos_token_id] + prompt_input_ids
+                    chosen_prompt_input_ids = [tokenizer.bos_token_id] + chosen_prompt_input_ids
+                    rejected_prompt_input_ids = [tokenizer.bos_token_id] + rejected_prompt_input_ids
+                if tokenizer.eos_token_id is not None:
+                    prompt_input_ids = prompt_input_ids + [tokenizer.eos_token_id]
+                    chosen_prompt_input_ids = chosen_prompt_input_ids + [tokenizer.eos_token_id]
+                    rejected_prompt_input_ids = rejected_prompt_input_ids + [tokenizer.eos_token_id]
+            
+            # Add EOS tokens to all responses
+            chosen_response_input_ids = chosen_response_input_ids + [tokenizer.eos_token_id]
+            rejected_response_input_ids = rejected_response_input_ids + [tokenizer.eos_token_id]
+            response_input_ids = response_input_ids + [tokenizer.eos_token_id]
 
-        # Add special tokens (typically for encoder-decoder models)
-        if add_special_tokens:
-            if tokenizer.bos_token_id is not None:
-                prompt_input_ids = [tokenizer.bos_token_id] + prompt_input_ids
-            if tokenizer.eos_token_id is not None:
-                prompt_input_ids = prompt_input_ids + [tokenizer.eos_token_id]
-        chosen_input_ids = chosen_input_ids + [tokenizer.eos_token_id]
-        rejected_input_ids = rejected_input_ids + [tokenizer.eos_token_id]
+            # Truncate prompt sequences
+            if max_prompt_length is not None:
+                prompt_input_ids = prompt_input_ids[-max_prompt_length:]
+                chosen_prompt_input_ids = chosen_prompt_input_ids[-max_prompt_length:]
+                rejected_prompt_input_ids = rejected_prompt_input_ids[-max_prompt_length:]
+            
+            # Truncate completion sequences
+            if max_completion_length is not None:
+                chosen_response_input_ids = chosen_response_input_ids[:max_completion_length]
+                rejected_response_input_ids = rejected_response_input_ids[:max_completion_length]
+                response_input_ids = response_input_ids[:max_completion_length]
 
-        # Truncate prompt and completion sequences
-        if max_prompt_length is not None:
-            prompt_input_ids = prompt_input_ids[-max_prompt_length:]
-        if max_completion_length is not None:
-            chosen_input_ids = chosen_input_ids[:max_completion_length]
-            rejected_input_ids = rejected_input_ids[:max_completion_length]
+            output = {
+                "prompt_input_ids": prompt_input_ids,
+                "pixel_values": pixel_values,
+                "chosen_response_input_ids": chosen_response_input_ids,
+                "rejected_response_input_ids": rejected_response_input_ids,
+                "chosen_prompt_input_ids": chosen_prompt_input_ids,
+                "rejected_prompt_input_ids": rejected_prompt_input_ids,
+                "response_input_ids": response_input_ids,
+            }
 
-        output = {
-            "prompt_input_ids": prompt_input_ids,
-            "pixel_values": pixel_values,
-            "chosen_input_ids": chosen_input_ids,
-            "rejected_input_ids": rejected_input_ids,
-        }
+            # Add additional vision features if available
+            if "pixel_attention_mask" in processed_features:
+                output["pixel_attention_mask"] = processed_features["pixel_attention_mask"][0]
+            if "image_sizes" in processed_features:
+                output["image_sizes"] = processed_features["image_sizes"][0]
 
-        if "pixel_attention_mask" in processed_features:
-            output["pixel_attention_mask"] = processed_features["pixel_attention_mask"][0]
-        if "image_sizes" in processed_features:
-            output["image_sizes"] = processed_features["image_sizes"][0]
+            return output
+            
+        elif is_standard_dpo_format:
+            # Standard DPO format for vision models (backward compatibility)
+            processed_features = processor(images=features["images"], text=features["prompt"], add_special_tokens=False)
 
-        return output
+            prompt_input_ids = processed_features["input_ids"][0]
+            pixel_values = processed_features["pixel_values"][0]
+            chosen_input_ids = tokenizer(features["chosen"], add_special_tokens=False)["input_ids"]
+            rejected_input_ids = tokenizer(features["rejected"], add_special_tokens=False)["input_ids"]
+
+            # Add special tokens (typically for encoder-decoder models)
+            if add_special_tokens:
+                if tokenizer.bos_token_id is not None:
+                    prompt_input_ids = [tokenizer.bos_token_id] + prompt_input_ids
+                if tokenizer.eos_token_id is not None:
+                    prompt_input_ids = prompt_input_ids + [tokenizer.eos_token_id]
+            chosen_input_ids = chosen_input_ids + [tokenizer.eos_token_id]
+            rejected_input_ids = rejected_input_ids + [tokenizer.eos_token_id]
+
+            # Truncate prompt and completion sequences
+            if max_prompt_length is not None:
+                prompt_input_ids = prompt_input_ids[-max_prompt_length:]
+            if max_completion_length is not None:
+                chosen_input_ids = chosen_input_ids[:max_completion_length]
+                rejected_input_ids = rejected_input_ids[:max_completion_length]
+
+            output = {
+                "prompt_input_ids": prompt_input_ids,
+                "pixel_values": pixel_values,
+                "chosen_input_ids": chosen_input_ids,
+                "rejected_input_ids": rejected_input_ids,
+            }
+
+            if "pixel_attention_mask" in processed_features:
+                output["pixel_attention_mask"] = processed_features["pixel_attention_mask"][0]
+            if "image_sizes" in processed_features:
+                output["image_sizes"] = processed_features["image_sizes"][0]
+
+            return output
+        else:
+            # Invalid format
+            available_keys = list(features.keys())
+            raise ValueError(
+                f"Invalid dataset format for vision models. Expected either:\n"
+                f"- MultiDPO format with keys: {multidpo_keys} (plus 'images')\n"
+                f"- Standard DPO format with keys: {standard_dpo_keys} (plus 'images')\n"
+                f"Got keys: {available_keys}"
+            )
 
     def _set_signature_columns_if_needed(self):
         # If `self.args.remove_unused_columns` is True, non-signature columns are removed.
         # By default, this method sets `self._signature_columns` to the model's expected inputs.
-        # In DPOTrainer, we preprocess data, so using the model's signature columns doesn't work.
+        # In MultiDPOTrainer, we preprocess data, so using the model's signature columns doesn't work.
         # Instead, we set them to the columns expected by `DataCollatorForPreference`, hence the override.
         if self._signature_columns is None:
+            # MultiDPO signature columns (includes both old and new formats for compatibility)
             self._signature_columns = [
+                # Standard DPO format
                 "prompt_input_ids",
-                "chosen_input_ids",
+                "chosen_input_ids", 
                 "rejected_input_ids",
+                # MultiDPO format (6-key)
+                "chosen_response_input_ids",
+                "rejected_response_input_ids", 
+                "chosen_prompt_input_ids",
+                "rejected_prompt_input_ids",
+                "response_input_ids",
+                # Vision support
                 "image_sizes",
+                "pixel_values",
+                "pixel_attention_mask",
+                # Reference log probs (both formats)
                 "ref_chosen_logps",
                 "ref_rejected_logps",
+                "ref_chosen_logps_dpo",
+                "ref_rejected_logps_dpo",
+                "ref_chosen_logps_adpo", 
+                "ref_rejected_logps_adpo",
             ]
 
     def get_train_dataloader(self) -> DataLoader:
@@ -790,27 +1062,36 @@ class multiDPOTrainer(Trainer):
             # prepare dataloader
             data_loader = self.accelerator.prepare(DataLoader(self.train_dataset, **dataloader_params))
 
-            ref_chosen_logps = []
-            ref_rejected_logps = []
+            # MultiDPO uses 4-part reference logps
+            ref_chosen_logps_dpo = []
+            ref_rejected_logps_dpo = []
+            ref_chosen_logps_adpo = []
+            ref_rejected_logps_adpo = []
+            
             for padded_batch in tqdm(iterable=data_loader, desc="Train dataset reference log probs"):
-                ref_chosen_logp, ref_rejected_logp = self.compute_ref_log_probs(padded_batch)
-                ref_chosen_logp, ref_rejected_logp = self.accelerator.gather_for_metrics(
-                    (ref_chosen_logp, ref_rejected_logp)
+                ref_chosen_logp_dpo, ref_rejected_logp_dpo, ref_chosen_logp_adpo, ref_rejected_logp_adpo = self.compute_ref_log_probs(padded_batch)
+                ref_chosen_logp_dpo, ref_rejected_logp_dpo, ref_chosen_logp_adpo, ref_rejected_logp_adpo = self.accelerator.gather_for_metrics(
+                    (ref_chosen_logp_dpo, ref_rejected_logp_dpo, ref_chosen_logp_adpo, ref_rejected_logp_adpo)
                 )
-                ref_chosen_logps.append(ref_chosen_logp.cpu())
-                ref_rejected_logps.append(ref_rejected_logp.cpu())
+                ref_chosen_logps_dpo.append(ref_chosen_logp_dpo.cpu())
+                ref_rejected_logps_dpo.append(ref_rejected_logp_dpo.cpu())
+                ref_chosen_logps_adpo.append(ref_chosen_logp_adpo.cpu())
+                ref_rejected_logps_adpo.append(ref_rejected_logp_adpo.cpu())
 
                 # Unnecessary cache clearing to avoid OOM
                 empty_cache()
                 self.accelerator.free_memory()
 
-            all_ref_chosen_logps = torch.cat(ref_chosen_logps).float().numpy()
-            all_ref_rejected_logps = torch.cat(ref_rejected_logps).float().numpy()
+            all_ref_chosen_logps_dpo = torch.cat(ref_chosen_logps_dpo).float().numpy()
+            all_ref_rejected_logps_dpo = torch.cat(ref_rejected_logps_dpo).float().numpy()
+            all_ref_chosen_logps_adpo = torch.cat(ref_chosen_logps_adpo).float().numpy()
+            all_ref_rejected_logps_adpo = torch.cat(ref_rejected_logps_adpo).float().numpy()
 
-            self.train_dataset = self.train_dataset.add_column(name="ref_chosen_logps", column=all_ref_chosen_logps)
-            self.train_dataset = self.train_dataset.add_column(
-                name="ref_rejected_logps", column=all_ref_rejected_logps
-            )
+            # Add 4-part reference logps to dataset
+            self.train_dataset = self.train_dataset.add_column(name="ref_chosen_logps_dpo", column=all_ref_chosen_logps_dpo)
+            self.train_dataset = self.train_dataset.add_column(name="ref_rejected_logps_dpo", column=all_ref_rejected_logps_dpo)
+            self.train_dataset = self.train_dataset.add_column(name="ref_chosen_logps_adpo", column=all_ref_chosen_logps_adpo)
+            self.train_dataset = self.train_dataset.add_column(name="ref_rejected_logps_adpo", column=all_ref_rejected_logps_adpo)
 
             self._precomputed_train_ref_log_probs = True
 
@@ -844,21 +1125,32 @@ class multiDPOTrainer(Trainer):
             # prepare dataloader
             data_loader = self.accelerator.prepare(DataLoader(eval_dataset, **dataloader_params))
 
-            ref_chosen_logps = []
-            ref_rejected_logps = []
+            # MultiDPO uses 4-part reference logps
+            ref_chosen_logps_dpo = []
+            ref_rejected_logps_dpo = []
+            ref_chosen_logps_adpo = []
+            ref_rejected_logps_adpo = []
+            
             for padded_batch in tqdm(iterable=data_loader, desc="Eval dataset reference log probs"):
-                ref_chosen_logp, ref_rejected_logp = self.compute_ref_log_probs(padded_batch)
-                ref_chosen_logp, ref_rejected_logp = self.accelerator.gather_for_metrics(
-                    (ref_chosen_logp, ref_rejected_logp)
+                ref_chosen_logp_dpo, ref_rejected_logp_dpo, ref_chosen_logp_adpo, ref_rejected_logp_adpo = self.compute_ref_log_probs(padded_batch)
+                ref_chosen_logp_dpo, ref_rejected_logp_dpo, ref_chosen_logp_adpo, ref_rejected_logp_adpo = self.accelerator.gather_for_metrics(
+                    (ref_chosen_logp_dpo, ref_rejected_logp_dpo, ref_chosen_logp_adpo, ref_rejected_logp_adpo)
                 )
-                ref_chosen_logps.append(ref_chosen_logp.cpu())
-                ref_rejected_logps.append(ref_rejected_logp.cpu())
+                ref_chosen_logps_dpo.append(ref_chosen_logp_dpo.cpu())
+                ref_rejected_logps_dpo.append(ref_rejected_logp_dpo.cpu())
+                ref_chosen_logps_adpo.append(ref_chosen_logp_adpo.cpu())
+                ref_rejected_logps_adpo.append(ref_rejected_logp_adpo.cpu())
 
-            all_ref_chosen_logps = torch.cat(ref_chosen_logps).float().numpy()
-            all_ref_rejected_logps = torch.cat(ref_rejected_logps).float().numpy()
+            all_ref_chosen_logps_dpo = torch.cat(ref_chosen_logps_dpo).float().numpy()
+            all_ref_rejected_logps_dpo = torch.cat(ref_rejected_logps_dpo).float().numpy()
+            all_ref_chosen_logps_adpo = torch.cat(ref_chosen_logps_adpo).float().numpy()
+            all_ref_rejected_logps_adpo = torch.cat(ref_rejected_logps_adpo).float().numpy()
 
-            eval_dataset = eval_dataset.add_column(name="ref_chosen_logps", column=all_ref_chosen_logps)
-            eval_dataset = eval_dataset.add_column(name="ref_rejected_logps", column=all_ref_rejected_logps)
+            # Add 4-part reference logps to dataset
+            eval_dataset = eval_dataset.add_column(name="ref_chosen_logps_dpo", column=all_ref_chosen_logps_dpo)
+            eval_dataset = eval_dataset.add_column(name="ref_rejected_logps_dpo", column=all_ref_rejected_logps_dpo)
+            eval_dataset = eval_dataset.add_column(name="ref_chosen_logps_adpo", column=all_ref_chosen_logps_adpo)
+            eval_dataset = eval_dataset.add_column(name="ref_rejected_logps_adpo", column=all_ref_rejected_logps_adpo)
 
             # Save calculated ref_chosen_logps and ref_rejected_logps to the eval_dataset for subsequent runs
             if self.eval_dataset is not None:
