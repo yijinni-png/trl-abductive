@@ -2528,7 +2528,7 @@ class MultiDPOTrainer(Trainer):
                         print("⚠️  ISSUE: Gradients present but parameters not updating!")
                 
                 # Check learning rate
-                current_lr = self.get_lr()
+                current_lr = self.optimizer.param_groups[0]['lr'] if self.optimizer else 'Unknown'
                 print(f"  🎓 Current learning rate: {current_lr}")
                 
                 # Check DeepSpeed stage
