@@ -2421,7 +2421,7 @@ class MultiDPOTrainer(Trainer):
         
         return model_path
 
-    def training_step(self, model, inputs):
+    def training_step(self, model, inputs, num_items_in_batch=None):
         """Override training step to monitor parameter updates."""
         # Store parameter norms before training step
         if hasattr(self, '_param_norms_before'):
