@@ -81,7 +81,7 @@ def apply_chat_template(
     For more details, see [`maybe_apply_chat_template`].
     """
     # Check that the example has the correct keys
-    supported_keys = ["prompt", "chosen", "rejected", "completion", "messages", "label", "response"]
+    supported_keys = ["prompt", "chosen", "rejected", "completion", "messages", "label", "response", "chosen_response", "rejected_response", "chosen_prompt", "rejected_prompt"]
     example_keys = {key for key in example.keys() if key in supported_keys}
     if example_keys not in [
         {"messages"},  # language modeling
@@ -91,7 +91,7 @@ def apply_chat_template(
         {"chosen", "rejected"},  # preference with implicit prompt
         {"chosen", "rejected", "response"},  # preference with implicit response (chosen/rejected are prompts)
         {"prompt", "completion", "label"},  # unpaired preference
-        {"prompt", "chosen_response", "rejected_response", "response", "chosen_prompt", "rejected_prompt"}    # A pair of preference data from DPO and ADPO
+        {"prompt", "chosen_response", "rejected_response", "response", "chosen_prompt", "rejected_prompt"},  # A pair of preference data from DPO and ADPO
     ]:
         raise KeyError(f"Invalid keys in the example: {example_keys}")
 
