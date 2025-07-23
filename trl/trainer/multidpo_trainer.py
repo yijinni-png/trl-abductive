@@ -383,6 +383,13 @@ class MultiDPOTrainer(Trainer):
         elif self.is_peft_model or args.precompute_ref_log_probs:
             # The `model` with adapters turned off will be used as the reference model
             self.ref_model = None
+        elif hasattr(self, 'is_deepspeed_enabled') and self.is_deepspeed_enabled:
+            # For DeepSpeed ZeRO-3, create reference model directly with AutoModelForCausalLM
+            model_name = getattr(model.config, '_name_or_path', None)
+            if model_name:
+                self.ref_model = AutoModelForCausalLM.from_pretrained(model_name)
+            else:
+                self.ref_model = None
         else:
             self.ref_model = create_reference_model(model)
 
