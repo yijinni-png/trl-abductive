@@ -1359,6 +1359,31 @@ class MultiDPOTrainer(Trainer):
         # Combine losses using lambda_weight: λ * DPO_loss + (1-λ) * ADPO_loss
         lambda_weight = self.lambda_weight
         combined_losses = lambda_weight * dpo_losses + (1 - lambda_weight) * adpo_losses
+        
+        # Debug loss components (every 5 steps to avoid spam)
+        if hasattr(self, 'state') and self.state.global_step % 5 == 0:
+            if hasattr(self, 'accelerator') and self.accelerator.is_main_process:
+                dpo_loss_mean = dpo_losses.mean().item()
+                adpo_loss_mean = adpo_losses.mean().item()
+                combined_loss_mean = combined_losses.mean().item()
+                
+                print(f"\n🧮 Loss Debug (Step {self.state.global_step}):")
+                print(f"  🔷 DPO Loss: {dpo_loss_mean:.6f}")
+                print(f"  🔶 ADPO Loss: {adpo_loss_mean:.6f}")
+                print(f"  ⚖️  Lambda weight: {lambda_weight:.3f}")
+                print(f"  🔸 Combined Loss: {combined_loss_mean:.6f}")
+                print(f"  📏 DPO contribution: {lambda_weight * dpo_loss_mean:.6f}")
+                print(f"  📐 ADPO contribution: {(1-lambda_weight) * adpo_loss_mean:.6f}")
+                
+                # Check if ADPO is getting suppressed
+                if adpo_loss_mean > dpo_loss_mean * 10:
+                    print("⚠️  ADPO loss much larger than DPO - possible scaling issue!")
+                elif adpo_loss_mean < dpo_loss_mean / 10:
+                    print("⚠️  ADPO loss much smaller than DPO - possible underweighting!")
+                
+                # Debug logp ranges
+                print(f"  📊 DPO logps: chosen={chosen_logps_dpo.mean().item():.2f}, rejected={rejected_logps_dpo.mean().item():.2f}")
+                print(f"  📊 ADPO logps: chosen={chosen_logps_adpo.mean().item():.2f}, rejected={rejected_logps_adpo.mean().item():.2f}")
         combined_chosen_rewards = lambda_weight * dpo_chosen_rewards + (1 - lambda_weight) * adpo_chosen_rewards
         combined_rejected_rewards = lambda_weight * dpo_rejected_rewards + (1 - lambda_weight) * adpo_rejected_rewards
         
@@ -2435,28 +2460,60 @@ class MultiDPOTrainer(Trainer):
         # Perform the actual training step
         loss = super().training_step(model, inputs)
         
-        # Check parameter updates after training step
+        # Check parameter updates and gradients after training step
         if self.state.global_step % self.args.logging_steps == 0:
             param_updates = []
-            for name, param in model.named_parameters():
-                if param.requires_grad and name in param_norms_before:
-                    norm_before = param_norms_before[name]
-                    norm_after = param.data.norm().item()
-                    update_magnitude = abs(norm_after - norm_before)
-                    param_updates.append((name, norm_before, norm_after, update_magnitude))
+            grad_info = []
             
-            # Log parameter update statistics
-            if param_updates and self.accelerator.is_main_process:
-                total_update = sum(update[3] for update in param_updates)
-                max_update = max(param_updates, key=lambda x: x[3])
-                print(f"\nStep {self.state.global_step} Parameter Updates:")
-                print(f"  Total parameter change: {total_update:.8f}")
-                print(f"  Max change: {max_update[0]} = {max_update[3]:.8f}")
-                print(f"  Loss: {loss.item():.6f}")
+            for name, param in model.named_parameters():
+                if param.requires_grad:
+                    # Parameter update info
+                    if name in param_norms_before:
+                        norm_before = param_norms_before[name]
+                        norm_after = param.data.norm().item()
+                        update_magnitude = abs(norm_after - norm_before)
+                        param_updates.append((name, norm_before, norm_after, update_magnitude))
+                    
+                    # Gradient info
+                    if param.grad is not None:
+                        grad_norm = param.grad.data.norm().item()
+                        grad_info.append((name, grad_norm))
+                    else:
+                        grad_info.append((name, 0.0))
+            
+            # Log comprehensive debugging info
+            if self.accelerator.is_main_process:
+                total_update = sum(update[3] for update in param_updates) if param_updates else 0
+                total_grad_norm = sum(grad[1] for grad in grad_info)
+                max_update = max(param_updates, key=lambda x: x[3]) if param_updates else None
+                max_grad = max(grad_info, key=lambda x: x[1]) if grad_info else None
                 
-                # Warning if no updates detected
+                print(f"\n🔍 Step {self.state.global_step} Debug Info:")
+                print(f"  📊 Loss: {loss.item():.6f}")
+                print(f"  📈 Total parameter change: {total_update:.8f}")
+                print(f"  📉 Total gradient norm: {total_grad_norm:.8f}")
+                if max_update:
+                    print(f"  🎯 Max param change: {max_update[0][:50]}... = {max_update[3]:.8f}")
+                if max_grad:
+                    print(f"  ⚡ Max gradient: {max_grad[0][:50]}... = {max_grad[1]:.8f}")
+                
+                # Enhanced warnings
                 if total_update < 1e-8:
                     print("⚠️  WARNING: Very small parameter updates detected!")
+                    if total_grad_norm < 1e-8:
+                        print("⚠️  CRITICAL: No gradients detected! Model not learning!")
+                    else:
+                        print("⚠️  ISSUE: Gradients present but parameters not updating!")
+                
+                # Check learning rate
+                current_lr = self.get_lr()
+                print(f"  🎓 Current learning rate: {current_lr}")
+                
+                # Check DeepSpeed stage
+                if hasattr(self, 'accelerator') and hasattr(self.accelerator.state, 'deepspeed_plugin'):
+                    if self.accelerator.state.deepspeed_plugin:
+                        zero_stage = getattr(self.accelerator.state.deepspeed_plugin, 'zero_stage', 'Unknown')
+                        print(f"  🚀 DeepSpeed ZeRO Stage: {zero_stage}")
         
         # Store current norms for next step
         self._param_norms_before = {}
