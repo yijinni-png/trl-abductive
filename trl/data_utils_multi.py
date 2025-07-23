@@ -117,28 +117,28 @@ def apply_chat_template(
             add_generation_prompt=False,
         )
         output['rejected_response'] = tokenizer.apply_chat_template(
-            example["chosen_response"],
+            example["rejected_response"],
             tools=tools,
             continue_final_message=True,
             tokenize=False,
             add_generation_prompt=False,
         )
         output['response'] = tokenizer.apply_chat_template(
-            example["chosen_response"],
+            example["response"],
             tools=tools,
             continue_final_message=True,
             tokenize=False,
             add_generation_prompt=False,
         )
         output['chosen_prompt'] = tokenizer.apply_chat_template(
-            example["prompt"],
+            example["chosen_prompt"],
             tools=tools,
             continue_final_message=False,
             tokenize=False,
             add_generation_prompt=True,
         )
         output['rejected_prompt'] = tokenizer.apply_chat_template(
-            example["prompt"],
+            example["rejected_prompt"],
             tools=tools,
             continue_final_message=False,
             tokenize=False,
