@@ -2081,6 +2081,10 @@ class MultiDPOTrainer(Trainer):
             else:
                 ref_chosen_logps_dpo, ref_rejected_logps_dpo, ref_chosen_logps_adpo, ref_rejected_logps_adpo = self.compute_ref_log_probs(batch)
 
+            # Store reference logps for debugging
+            self._last_ref_chosen_logps_adpo = ref_chosen_logps_adpo
+            self._last_ref_rejected_logps_adpo = ref_rejected_logps_adpo
+
             losses, chosen_rewards, rejected_rewards = self.multidpo_loss(
                 model_output["chosen_logps_dpo"], model_output["rejected_logps_dpo"],
                 model_output["chosen_logps_adpo"], model_output["rejected_logps_adpo"],
@@ -2108,6 +2112,37 @@ class MultiDPOTrainer(Trainer):
                         rejected_adpo = model_output['rejected_logps_adpo'][i].item()
                         correct = chosen_adpo > rejected_adpo
                         print(f"  Example {i}: chosen={chosen_adpo:.2f}, rejected={rejected_adpo:.2f}, correct={correct}")
+                        
+                # 🔍 DEBUG: Check reference model vs trained model for loss/accuracy discrepancy
+                if hasattr(self, '_last_ref_logps_adpo'):
+                    print(f"\n🔬 LOSS/ACCURACY DISCREPANCY DEBUG:")
+                    
+                    # Compare model vs reference differences
+                    model_diffs = model_output['chosen_logps_adpo'] - model_output['rejected_logps_adpo']
+                    ref_diffs = self._last_ref_chosen_logps_adpo - self._last_ref_rejected_logps_adpo
+                    logits = model_diffs - ref_diffs
+                    
+                    print(f"  Model ADPO diff (chosen-rejected): mean={model_diffs.mean().item():.4f}, std={model_diffs.std().item():.4f}")
+                    print(f"  Reference ADPO diff (chosen-rejected): mean={ref_diffs.mean().item():.4f}, std={ref_diffs.std().item():.4f}")
+                    print(f"  Final logits (model_diff - ref_diff): mean={logits.mean().item():.4f}, std={logits.std().item():.4f}")
+                    print(f"  Beta parameter: {self.beta}")
+                    
+                    # Check if reference is already too good
+                    ref_accuracy = (ref_diffs > 0).float().mean().item()
+                    print(f"  Reference model ADPO accuracy: {ref_accuracy:.3f}")
+                    
+                    if ref_accuracy > 0.8:
+                        print(f"  ⚠️  ISSUE: Reference model already has high ADPO accuracy ({ref_accuracy:.3f})")
+                        print(f"     This makes it hard for trained model to show improvement in loss!")
+                        
+                    # Show loss computation for first example
+                    if len(logits) > 0:
+                        first_logit = logits[0].item()
+                        first_loss = -torch.nn.functional.logsigmoid(self.beta * logits[0]).item()
+                        print(f"  Example 0: logit={first_logit:.4f}, loss={first_loss:.4f}")
+                        print(f"             sigmoid({self.beta} * {first_logit:.4f}) = {torch.sigmoid(self.beta * logits[0]).item():.4f}")
+                        
+                    print(f"  Expected loss range: [0, {-torch.nn.functional.logsigmoid(torch.tensor(-10.0)).item():.3f}]")
 
         if self.args.rpo_alpha is not None:
             losses = losses + self.args.rpo_alpha * model_output["nll_loss"]  # RPO loss from V3 of the paper
