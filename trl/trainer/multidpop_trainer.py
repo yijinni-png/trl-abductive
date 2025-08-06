@@ -250,7 +250,7 @@ class MultiDPOPTrainer(Trainer):
             Hugging Face transformer model with a casual language modelling head. Used for implicit reward computation
             and loss. If no reference model is provided, the trainer will create a reference model with the same
             architecture as the model to be optimized.
-        args ([`MultiDPOConfig`], *optional*, defaults to `None`):
+        args ([`MultiDPOPConfig`], *optional*, defaults to `None`):
             Configuration for this trainer. If `None`, a default configuration is used.
         data_collator (`DataCollator`, *optional*):
             Function to use to form a batch from a list of elements of the processed `train_dataset` or `eval_dataset`.
@@ -319,7 +319,7 @@ class MultiDPOPTrainer(Trainer):
         model_id = model if isinstance(model, str) else model.config._name_or_path
         if args is None:
             model_name = model_id.split("/")[-1]
-            args = MultiDPOConfig(f"{model_name}-MultiDPO")
+            args = MultiDPOPConfig(f"{model_name}-MultiDPOP")
 
         # Handle the tokenizer
         if processing_class is None:
@@ -334,8 +334,8 @@ class MultiDPOPTrainer(Trainer):
                 self.padding_value = processing_class.tokenizer.pad_token_id
             else:
                 raise ValueError(
-                    "`padding_value` is not specified in `MultiDPOConfig`, and `pad_token_id` is missing in the "
-                    "`processing_class`. Please either set the `padding_value` argument in `MultiDPOConfig`, or set "
+                    "`padding_value` is not specified in `MultiDPOPConfig`, and `pad_token_id` is missing in the "
+                    "`processing_class`. Please either set the `padding_value` argument in `MultiDPOPConfig`, or set "
                     "`tokenizer.pad_token` (e.g., `tokenizer.pad_token = tokenizer.eos_token`) before instantiating "
                     "the trainer."
                 )
@@ -349,7 +349,7 @@ class MultiDPOPTrainer(Trainer):
 
         if args.model_init_kwargs is not None and not isinstance(model, str):
             warnings.warn(
-                "You passed model_init_kwargs to the `MultiDPOConfig`, but your model is already instantiated. "
+                "You passed model_init_kwargs to the `MultiDPOPConfig`, but your model is already instantiated. "
                 "The `model_init_kwargs` will be ignored."
             )
         if isinstance(model, str):
@@ -357,7 +357,7 @@ class MultiDPOPTrainer(Trainer):
 
         if args.ref_model_init_kwargs is not None and not isinstance(ref_model, str):
             warnings.warn(
-                "You passed ref_model_init_kwargs to the `MultiDPOConfig`, but your ref_model is already instantiated. "
+                "You passed ref_model_init_kwargs to the `MultiDPOPConfig`, but your ref_model is already instantiated. "
                 "The `ref_model_init_kwargs` will be ignored."
             )
         if isinstance(ref_model, str):
@@ -575,7 +575,7 @@ class MultiDPOPTrainer(Trainer):
         if self.loss_type == "bco_pair":
             self.running = RunningMoments(self.accelerator)
 
-    def _create_model_from_path(self, model_path: str, args: MultiDPOConfig, is_ref: bool = False) -> PreTrainedModel:
+    def _create_model_from_path(self, model_path: str, args: MultiDPOPConfig, is_ref: bool = False) -> PreTrainedModel:
         """Creates a model from a path or model identifier."""
         if not is_ref:
             model_init_kwargs = args.model_init_kwargs or {}
@@ -591,7 +591,7 @@ class MultiDPOPTrainer(Trainer):
             model_init_kwargs["torch_dtype"] = torch_dtype
         else:
             raise ValueError(
-                "Invalid `torch_dtype` passed to `MultiDPOConfig`. Expected either 'auto' or a string representing "
+                "Invalid `torch_dtype` passed to `MultiDPOPConfig`. Expected either 'auto' or a string representing "
                 f"a `torch.dtype` (e.g., 'float32'), but got {torch_dtype}."
             )
         # Disable caching if gradient checkpointing is enabled (not supported)
@@ -603,7 +603,7 @@ class MultiDPOPTrainer(Trainer):
         return model
 
     def _prepare_peft_model(
-        self, model: PreTrainedModel, ref_model: PreTrainedModel, peft_config: Any, args: MultiDPOConfig
+        self, model: PreTrainedModel, ref_model: PreTrainedModel, peft_config: Any, args: MultiDPOPConfig
     ) -> PreTrainedModel:
         """Prepares a model for PEFT training."""
         # Initialize this variable to False. This helps tracking the case when `peft_module_casting_to_bf16`
@@ -655,7 +655,7 @@ class MultiDPOPTrainer(Trainer):
 
         return model
 
-    def _prepare_gradient_checkpointing(self, model: PreTrainedModel, args: MultiDPOConfig):
+    def _prepare_gradient_checkpointing(self, model: PreTrainedModel, args: MultiDPOPConfig):
         """Prepare the gradienting checkpointing for the model."""
         # For models that use gradient_checkpointing, we need to attach a hook that enables input
         # to explicitly have `requires_grad=True`, otherwise training will either silently
@@ -677,7 +677,7 @@ class MultiDPOPTrainer(Trainer):
         self,
         dataset: Union[Dataset, IterableDataset],
         processing_class: Union[PreTrainedTokenizerBase, BaseImageProcessor, FeatureExtractionMixin, ProcessorMixin],
-        args: MultiDPOConfig,
+        args: MultiDPOPConfig,
         dataset_name: str,
     ) -> Union[Dataset, IterableDataset]:
         # Build the kwargs for the `map` function
