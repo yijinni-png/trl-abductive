@@ -57,6 +57,8 @@ _import_structure = {
     "model_config": ["ModelConfig"],
     "multidpo_config": ["MultiDPOConfig"],
     "multidpo_trainer": ["MultiDPOTrainer"],
+    "multidpop_config": ["MultiDPOPConfig"],
+    "multidpop_trainer": ["MultiDPOPTrainer"],
     "nash_md_config": ["NashMDConfig"],
     "nash_md_trainer": ["NashMDTrainer"],
     "online_dpo_config": ["OnlineDPOConfig"],
@@ -132,6 +134,8 @@ if TYPE_CHECKING:
     from .model_config import ModelConfig
     from .multidpo_config import MultiDPOConfig
     from .multidpo_trainer import MultiDPOTrainer
+    from .multidpop_config import MultiDPOPConfig
+    from .multidpop_trainer import MultiDPOPTrainer
     from .nash_md_config import NashMDConfig
     from .nash_md_trainer import NashMDTrainer
     from .online_dpo_config import OnlineDPOConfig
