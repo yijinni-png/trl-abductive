@@ -386,7 +386,7 @@ class MultiDPOPConfig(TrainingArguments):
             "Applied as: loss = -F.logsigmoid(β * (original_logits - λ_dpop * penalty_term)). "
             "penalty_term = max(0, log(π_ref(y_w) / π_θ(y_w))) = F.relu(-chosen_logratios). "
             "λ_dpop=0.0 means standard DPO/ADPO, higher values increase penalty strength. "
-            "Range: [0.0, 10.0]. Recommended: 0.1-1.0 for moderate penalization."
+            "Range: [0.0, ∞). Recommended: 0.1-1.0 for moderate penalization, 10-50 for strong penalization."
         },
     )
     enable_dpo_accuracy_tracking: bool = field(
@@ -504,10 +504,10 @@ class MultiDPOPConfig(TrainingArguments):
                 "Use 1.0 for pure DPOP, 0.0 for pure ADPOP, or values in between for combined training."
             )
         
-        if not (0.0 <= self.lambda_dpop <= 10.0):
+        if self.lambda_dpop < 0.0:
             raise ValueError(
-                f"lambda_dpop must be between 0.0 and 10.0, got {self.lambda_dpop}. "
-                "Values outside this range may cause training instability."
+                f"lambda_dpop must be non-negative, got {self.lambda_dpop}. "
+                "Negative values are not meaningful for penalty coefficients."
             )
         
         # Warn about potentially problematic configurations
@@ -527,11 +527,12 @@ class MultiDPOPConfig(TrainingArguments):
                 f"lambda_dpop=0.0 reduces MultiDPOP to standard MultiDPO training (no penalty applied).",
                 UserWarning
             )
-        elif self.lambda_dpop > 1.0:
+        elif self.lambda_dpop > 10.0:
             import warnings
             warnings.warn(
-                f"lambda_dpop={self.lambda_dpop} is quite high and may cause aggressive penalization. "
-                f"Consider starting with values in range [0.1, 1.0].",
+                f"lambda_dpop={self.lambda_dpop} is very high and will cause strong penalization. "
+                f"This is intentional for strong penalty-based training. "
+                f"For moderate penalization, consider values in range [0.1, 1.0].",
                 UserWarning
             )
         
