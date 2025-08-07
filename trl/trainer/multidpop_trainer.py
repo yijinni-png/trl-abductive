@@ -484,6 +484,13 @@ class MultiDPOPTrainer(Trainer):
         self.lambda_dpop = args.lambda_dpop
         self.label_smoothing = args.label_smoothing
         self.loss_type = args.loss_type
+        
+        # Safety check for critical parameters
+        if self.beta is None:
+            raise ValueError(
+                f"Beta parameter is None! This is required for DPO loss computation. "
+                f"Please ensure 'beta' is set in your config. Args: {args}"
+            )
         self.aux_loss_enabled = getattr(model.config, "output_router_logits", False)
         self.use_weighting = args.use_weighting
         self.aux_loss_coef = getattr(model.config, "router_aux_loss_coef", 0.0)
