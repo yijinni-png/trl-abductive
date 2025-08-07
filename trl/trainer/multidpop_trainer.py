@@ -479,6 +479,11 @@ class MultiDPOPTrainer(Trainer):
         if args.loss_type == "kto_pair":
             raise ValueError("Support for kto_pair has been removed in DPOTrainer. Please use KTOTrainer.")
 
+        # Debug: Log what we're getting from args
+        print(f"DEBUG MultiDPOPTrainer.__init__: args.beta = {args.beta}")
+        print(f"DEBUG MultiDPOPTrainer.__init__: type(args) = {type(args)}")
+        print(f"DEBUG MultiDPOPTrainer.__init__: hasattr(args, 'beta') = {hasattr(args, 'beta')}")
+        
         self.beta = args.beta
         self.lambda_weight = args.lambda_weight
         self.lambda_dpop = args.lambda_dpop
@@ -487,10 +492,17 @@ class MultiDPOPTrainer(Trainer):
         
         # Safety check for critical parameters
         if self.beta is None:
-            raise ValueError(
-                f"Beta parameter is None! This is required for DPO loss computation. "
-                f"Please ensure 'beta' is set in your config. Args: {args}"
-            )
+            # Try to get beta from the config defaults
+            print(f"WARNING: Beta is None, checking default value")
+            if hasattr(args.__class__, 'beta') and hasattr(args.__class__.beta, 'default'):
+                default_beta = args.__class__.beta.default
+                print(f"Found default beta in class: {default_beta}")
+                self.beta = default_beta
+            else:
+                raise ValueError(
+                    f"Beta parameter is None! This is required for DPO loss computation. "
+                    f"Please ensure 'beta' is set in your config. Args: {args}"
+                )
         self.aux_loss_enabled = getattr(model.config, "output_router_logits", False)
         self.use_weighting = args.use_weighting
         self.aux_loss_coef = getattr(model.config, "router_aux_loss_coef", 0.0)
