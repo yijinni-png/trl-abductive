@@ -98,7 +98,7 @@ class DataCollatorForPreference(DataCollatorMixin):
     def torch_call(self, examples: list[Union[list[int], Any, dict[str, Any]]]) -> dict[str, Any]:
         # Convert to tensor
         print('='*60)
-        print("DEBUG: Recived a batch of", len(examples), "examples")
+        print("DEBUG: Received a batch of", len(examples), "examples")
         for idx, ex in enumerate(examples):
             missing_keys = [k for k in ["response_input_ids", "chosen_input_ids", "rejected_input_ids"] if k not in ex]
             empty_keys = [k for k in ["response_input_ids", "chosen_input_ids", "rejected_input_ids"] if k in ex and not ex[k]]
@@ -115,9 +115,20 @@ class DataCollatorForPreference(DataCollatorMixin):
         chosen_attention_mask = [torch.ones_like(input_ids) for input_ids in chosen_input_ids]
         rejected_input_ids = [torch.tensor(example["rejected_input_ids"]) for example in examples]
         rejected_attention_mask = [torch.ones_like(input_ids) for input_ids in rejected_input_ids]
-        if "pixel_values" in examples[0]:
+        # Handle multimodal ADPO (separate pixel values for chosen/rejected)
+        if "chosen_pixel_values" in examples[0] and "rejected_pixel_values" in examples[0]:
+            chosen_pixel_values = [torch.tensor(example["chosen_pixel_values"]) for example in examples]
+            rejected_pixel_values = [torch.tensor(example["rejected_pixel_values"]) for example in examples]
+        elif "pixel_values" in examples[0]:
+            # Backward compatibility: single pixel values
             pixel_values = [torch.tensor(example["pixel_values"]) for example in examples]
-        if "pixel_attention_mask" in examples[0]:
+        
+        # Handle attention masks
+        if "chosen_pixel_attention_mask" in examples[0] and "rejected_pixel_attention_mask" in examples[0]:
+            chosen_pixel_attention_mask = [torch.tensor(example["chosen_pixel_attention_mask"]) for example in examples]
+            rejected_pixel_attention_mask = [torch.tensor(example["rejected_pixel_attention_mask"]) for example in examples]
+        elif "pixel_attention_mask" in examples[0]:
+            # Backward compatibility: single pixel attention mask
             pixel_attention_mask = [torch.tensor(example["pixel_attention_mask"]) for example in examples]
         if "ref_chosen_logps" in examples[0] and "ref_rejected_logps" in examples[0]:
             ref_chosen_logps = torch.tensor([example["ref_chosen_logps"] for example in examples])
@@ -131,11 +142,28 @@ class DataCollatorForPreference(DataCollatorMixin):
         output["chosen_attention_mask"] = pad(chosen_attention_mask, padding_value=0)
         output["rejected_input_ids"] = pad(rejected_input_ids, padding_value=self.pad_token_id)
         output["rejected_attention_mask"] = pad(rejected_attention_mask, padding_value=0)
-        if "pixel_values" in examples[0]:
+        # Handle multimodal ADPO padding
+        if "chosen_pixel_values" in examples[0] and "rejected_pixel_values" in examples[0]:
+            output["chosen_pixel_values"] = pad(chosen_pixel_values, padding_value=0.0)
+            output["rejected_pixel_values"] = pad(rejected_pixel_values, padding_value=0.0)
+        elif "pixel_values" in examples[0]:
+            # Backward compatibility: single pixel values
             output["pixel_values"] = pad(pixel_values, padding_value=0.0)
-        if "pixel_attention_mask" in examples[0]:
+        
+        # Handle attention mask padding
+        if "chosen_pixel_attention_mask" in examples[0] and "rejected_pixel_attention_mask" in examples[0]:
+            output["chosen_pixel_attention_mask"] = pad(chosen_pixel_attention_mask, padding_value=0)
+            output["rejected_pixel_attention_mask"] = pad(rejected_pixel_attention_mask, padding_value=0)
+        elif "pixel_attention_mask" in examples[0]:
+            # Backward compatibility: single pixel attention mask
             output["pixel_attention_mask"] = pad(pixel_attention_mask, padding_value=0)
-        if "image_sizes" in examples[0]:
+        
+        # Handle image sizes
+        if "chosen_image_sizes" in examples[0] and "rejected_image_sizes" in examples[0]:
+            output["chosen_image_sizes"] = torch.tensor([example["chosen_image_sizes"] for example in examples])
+            output["rejected_image_sizes"] = torch.tensor([example["rejected_image_sizes"] for example in examples])
+        elif "image_sizes" in examples[0]:
+            # Backward compatibility: single image sizes
             output["image_sizes"] = torch.tensor([example["image_sizes"] for example in examples])
         if "ref_chosen_logps" in examples[0] and "ref_rejected_logps" in examples[0]:
             output["ref_chosen_logps"] = ref_chosen_logps
@@ -712,43 +740,117 @@ class ADPOTrainer(Trainer):
     @staticmethod
     def process_row(features, processing_class, max_prompt_length, max_completion_length, add_special_tokens):
         """
-        Same as `tokenize_row` but for vision models. Please refer to `tokenize_row` for more information.
+        Same as `tokenize_row` but for vision models. Supports both standard and multimodal ADPO format.
+        
+        For standard vision models (backward compatibility):
+        - Uses features["images"] with features["prompt"]
+        - Outputs single pixel_values
+        
+        For multimodal ADPO:
+        - Uses features["chosen_images"] with features["chosen"] text
+        - Uses features["rejected_images"] with features["rejected"] text
+        - Outputs chosen_pixel_values and rejected_pixel_values separately
         """
         processor, tokenizer = processing_class, processing_class.tokenizer  # the processing class is a processor
-        processed_features = processor(images=features["images"], text=features["prompt"], add_special_tokens=False)
+        
+        # Check if this is multimodal ADPO format (separate images for chosen/rejected)
+        has_separate_images = "chosen_images" in features and "rejected_images" in features
+        
+        if has_separate_images:
+            # Multimodal ADPO: Process chosen and rejected with their respective images
+            chosen_processed = processor(
+                images=features["chosen_images"], 
+                text=features["chosen"], 
+                add_special_tokens=False
+            )
+            rejected_processed = processor(
+                images=features["rejected_images"], 
+                text=features["rejected"], 
+                add_special_tokens=False
+            )
+            
+            # Process response text-only
+            response_input_ids = tokenizer(features["response"], add_special_tokens=False)["input_ids"]
+            
+            # Extract processed features
+            chosen_input_ids = chosen_processed["input_ids"][0]
+            rejected_input_ids = rejected_processed["input_ids"][0]
+            chosen_pixel_values = chosen_processed["pixel_values"][0]
+            rejected_pixel_values = rejected_processed["pixel_values"][0]
+            
+            # Add special tokens
+            if add_special_tokens:
+                if tokenizer.bos_token_id is not None:
+                    chosen_input_ids = [tokenizer.bos_token_id] + chosen_input_ids
+                    rejected_input_ids = [tokenizer.bos_token_id] + rejected_input_ids
+                if tokenizer.eos_token_id is not None:
+                    chosen_input_ids = chosen_input_ids + [tokenizer.eos_token_id]
+                    rejected_input_ids = rejected_input_ids + [tokenizer.eos_token_id]
+            response_input_ids = response_input_ids + [tokenizer.eos_token_id]
+            
+            # Truncate sequences
+            if max_prompt_length is not None:
+                chosen_input_ids = chosen_input_ids[-max_prompt_length:]
+                rejected_input_ids = rejected_input_ids[-max_prompt_length:]
+            if max_completion_length is not None:
+                response_input_ids = response_input_ids[:max_completion_length]
+            
+            output = {
+                "chosen_input_ids": chosen_input_ids,
+                "rejected_input_ids": rejected_input_ids,
+                "response_input_ids": response_input_ids,
+                "chosen_pixel_values": chosen_pixel_values,
+                "rejected_pixel_values": rejected_pixel_values,
+            }
+            
+            # Add optional fields for chosen
+            if "pixel_attention_mask" in chosen_processed:
+                output["chosen_pixel_attention_mask"] = chosen_processed["pixel_attention_mask"][0]
+            if "image_sizes" in chosen_processed:
+                output["chosen_image_sizes"] = chosen_processed["image_sizes"][0]
+            
+            # Add optional fields for rejected
+            if "pixel_attention_mask" in rejected_processed:
+                output["rejected_pixel_attention_mask"] = rejected_processed["pixel_attention_mask"][0]
+            if "image_sizes" in rejected_processed:
+                output["rejected_image_sizes"] = rejected_processed["image_sizes"][0]
+                
+        else:
+            # Standard format (backward compatibility): single image set with prompt
+            processed_features = processor(images=features["images"], text=features["prompt"], add_special_tokens=False)
 
-        prompt_input_ids = processed_features["input_ids"][0]
-        pixel_values = processed_features["pixel_values"][0]
-        chosen_input_ids = tokenizer(features["chosen"], add_special_tokens=False)["input_ids"]
-        rejected_input_ids = tokenizer(features["rejected"], add_special_tokens=False)["input_ids"]
+            prompt_input_ids = processed_features["input_ids"][0]
+            pixel_values = processed_features["pixel_values"][0]
+            chosen_input_ids = tokenizer(features["chosen"], add_special_tokens=False)["input_ids"]
+            rejected_input_ids = tokenizer(features["rejected"], add_special_tokens=False)["input_ids"]
 
-        # Add special tokens (typically for encoder-decoder models)
-        if add_special_tokens:
-            if tokenizer.bos_token_id is not None:
-                prompt_input_ids = [tokenizer.bos_token_id] + prompt_input_ids
-            if tokenizer.eos_token_id is not None:
-                prompt_input_ids = prompt_input_ids + [tokenizer.eos_token_id]
-        chosen_input_ids = chosen_input_ids + [tokenizer.eos_token_id]
-        rejected_input_ids = rejected_input_ids + [tokenizer.eos_token_id]
+            # Add special tokens (typically for encoder-decoder models)
+            if add_special_tokens:
+                if tokenizer.bos_token_id is not None:
+                    prompt_input_ids = [tokenizer.bos_token_id] + prompt_input_ids
+                if tokenizer.eos_token_id is not None:
+                    prompt_input_ids = prompt_input_ids + [tokenizer.eos_token_id]
+            chosen_input_ids = chosen_input_ids + [tokenizer.eos_token_id]
+            rejected_input_ids = rejected_input_ids + [tokenizer.eos_token_id]
 
-        # Truncate prompt and completion sequences
-        if max_prompt_length is not None:
-            prompt_input_ids = prompt_input_ids[-max_prompt_length:]
-        if max_completion_length is not None:
-            chosen_input_ids = chosen_input_ids[:max_completion_length]
-            rejected_input_ids = rejected_input_ids[:max_completion_length]
+            # Truncate prompt and completion sequences
+            if max_prompt_length is not None:
+                prompt_input_ids = prompt_input_ids[-max_prompt_length:]
+            if max_completion_length is not None:
+                chosen_input_ids = chosen_input_ids[:max_completion_length]
+                rejected_input_ids = rejected_input_ids[:max_completion_length]
 
-        output = {
-            "prompt_input_ids": prompt_input_ids,
-            "pixel_values": pixel_values,
-            "chosen_input_ids": chosen_input_ids,
-            "rejected_input_ids": rejected_input_ids,
-        }
+            output = {
+                "prompt_input_ids": prompt_input_ids,
+                "pixel_values": pixel_values,
+                "chosen_input_ids": chosen_input_ids,
+                "rejected_input_ids": rejected_input_ids,
+            }
 
-        if "pixel_attention_mask" in processed_features:
-            output["pixel_attention_mask"] = processed_features["pixel_attention_mask"][0]
-        if "image_sizes" in processed_features:
-            output["image_sizes"] = processed_features["image_sizes"][0]
+            if "pixel_attention_mask" in processed_features:
+                output["pixel_attention_mask"] = processed_features["pixel_attention_mask"][0]
+            if "image_sizes" in processed_features:
+                output["image_sizes"] = processed_features["image_sizes"][0]
 
         return output
 
@@ -897,42 +999,46 @@ class ADPOTrainer(Trainer):
     ) -> dict[str, torch.LongTensor]:
         """
         Concatenate the `chosen` and `rejected` inputs from the batch into a single tensor for both the prompt and
-        completion sequences.
+        completion sequences. Supports both standard and multimodal ADPO formats.
 
         Args:
             batch (`dict[str, Union[list, torch.LongTensor]]`):
                 A batch of input data. The batch must contain the following keys:
 
-                - `"response_input_ids"`: Tensor of shape `(batch_size, prompt_length)` representing the prompt input
-                  IDs.
-                - `"chosen_input_ids"`: Tensor of shape `(batch_size, chosen_length)` representing the chosen
-                  completion input IDs.
-                - `"rejected_input_ids"`: Tensor of shape `(batch_size, rejected_length)` representing the rejected
-                  completion input IDs.
-                - `"response_pixel_values"` (optional): Tensor for pixel values, if available.
-                - `"response_pixel_attention_mask"` (optional): Tensor for pixel attention masks, if available.
+                - `"response_input_ids"`: Tensor of shape `(batch_size, response_length)` representing the response input IDs.
+                - `"chosen_input_ids"`: Tensor of shape `(batch_size, chosen_length)` representing the chosen prompt input IDs.
+                - `"rejected_input_ids"`: Tensor of shape `(batch_size, rejected_length)` representing the rejected prompt input IDs.
+                
+                For multimodal ADPO (optional):
+                - `"chosen_pixel_values"`: Tensor for pixel values of chosen images.
+                - `"rejected_pixel_values"`: Tensor for pixel values of rejected images.
+                - `"chosen_pixel_attention_mask"`: Tensor for pixel attention masks of chosen images.
+                - `"rejected_pixel_attention_mask"`: Tensor for pixel attention masks of rejected images.
+                - `"chosen_image_sizes"`: Tensor for image sizes of chosen images.
+                - `"rejected_image_sizes"`: Tensor for image sizes of rejected images.
+                
+                For backward compatibility (optional):
+                - `"pixel_values"`: Tensor for pixel values (duplicated for both chosen and rejected).
+                - `"pixel_attention_mask"`: Tensor for pixel attention masks (duplicated for both chosen and rejected).
+                - `"image_sizes"`: Tensor for image sizes (duplicated for both chosen and rejected).
 
             padding_value (`int`):
-                The padding value to use for the concatenated completion sequences (`chosen_input_ids` and
-                `rejected_input_ids`).
+                The padding value to use for the concatenated sequences.
 
         Returns:
             `dict[str, torch.LongTensor]`: A dictionary containing:
 
-                - `"prompt_input_ids"`: Concatenated prompt input IDs of shape `(2 * batch_size, prompt_length)`.
-                - `"completion_input_ids"`: Concatenated chosen and rejected completion input IDs of shape `(2 *
-                  batch_size, max_completion_length)`.
-                - `"prompt_attention_mask"`: Concatenated prompt attention masks of shape `(2 * batch_size,
-                  prompt_length)`.
-                - `"completion_attention_mask"`: Concatenated chosen and rejected attention masks of shape `(2 *
-                  batch_size, max_completion_length)`.
-                - `"pixel_values"` (optional): Concatenated pixel values if `"prompt_pixel_values"` are present.
-                - `"pixel_attention_mask"` (optional): Concatenated pixel attention masks if
-                  `"prompt_pixel_attention_mask"` are present.
+                - `"prompt_input_ids"`: Concatenated chosen and rejected prompt input IDs of shape `(2 * batch_size, max_prompt_length)`.
+                - `"completion_input_ids"`: Concatenated response input IDs (duplicated) of shape `(2 * batch_size, response_length)`.
+                - `"prompt_attention_mask"`: Concatenated prompt attention masks of shape `(2 * batch_size, max_prompt_length)`.
+                - `"completion_attention_mask"`: Concatenated response attention masks (duplicated) of shape `(2 * batch_size, response_length)`.
+                - `"pixel_values"` (optional): Concatenated pixel values. For multimodal ADPO, concatenates different chosen and rejected pixel values.
+                - `"pixel_attention_mask"` (optional): Concatenated pixel attention masks.
+                - `"image_sizes"` (optional): Concatenated image sizes.
 
         Notes:
-            The completion input IDs and attention masks are padded to the maximum completion length of the chosen or
-            rejected sequences.
+            For multimodal ADPO, this method concatenates different pixel values for chosen and rejected prompts,
+            enabling the model to compute P(response | chosen_prompt + chosen_images) vs P(response | rejected_prompt + rejected_images).
         """
         output = {}
 
@@ -941,14 +1047,29 @@ class ADPOTrainer(Trainer):
         output["completion_attention_mask"] = torch.cat(
             [batch["response_attention_mask"], batch["response_attention_mask"]], dim=0
         )
-        if "pixel_values" in batch:
+        # Handle multimodal ADPO: concatenate different pixel values for chosen and rejected
+        if "chosen_pixel_values" in batch and "rejected_pixel_values" in batch:
+            output["pixel_values"] = torch.cat([batch["chosen_pixel_values"], batch["rejected_pixel_values"]], dim=0)
+        elif "pixel_values" in batch:
+            # Backward compatibility: duplicate same pixel values
             output["pixel_values"] = torch.cat([batch["pixel_values"], batch["pixel_values"]], dim=0)
 
-        if "pixel_attention_mask" in batch:
+        # Handle pixel attention masks
+        if "chosen_pixel_attention_mask" in batch and "rejected_pixel_attention_mask" in batch:
+            output["pixel_attention_mask"] = torch.cat(
+                [batch["chosen_pixel_attention_mask"], batch["rejected_pixel_attention_mask"]], dim=0
+            )
+        elif "pixel_attention_mask" in batch:
+            # Backward compatibility: duplicate same pixel attention mask
             output["pixel_attention_mask"] = torch.cat(
                 [batch["pixel_attention_mask"], batch["pixel_attention_mask"]], dim=0
             )
-        if "image_sizes" in batch:
+        
+        # Handle image sizes
+        if "chosen_image_sizes" in batch and "rejected_image_sizes" in batch:
+            output["image_sizes"] = torch.cat([batch["chosen_image_sizes"], batch["rejected_image_sizes"]], dim=0)
+        elif "image_sizes" in batch:
+            # Backward compatibility: duplicate same image sizes
             output["image_sizes"] = torch.cat([batch["image_sizes"], batch["image_sizes"]], dim=0)
 
         # Concatenate the chosen and rejected prompts

@@ -177,9 +177,20 @@ class ADPOConfig(TrainingArguments):
         generate_during_eval (`bool`, *optional*, defaults to `False`):
             Whether to generate and log completions from both the model and the reference model to W&B or Comet during
             evaluation.
+
+        > Parameters for multimodal support
+
+        multimodal_mode (`bool`, *optional*, defaults to `False`):
+            Whether to enable multimodal ADPO training with support for images in chosen and rejected prompts.
+        separate_images (`bool`, *optional*, defaults to `True`):
+            Whether to use separate images for chosen and rejected prompts. If False, uses same images for both.
+        image_processor_kwargs (`dict[str, Any]` or `None`, *optional*, defaults to `None`):
+            Additional keyword arguments to pass to the image processor when processing multimodal inputs.
+        max_image_size (`int` or `None`, *optional*, defaults to `None`):
+            Maximum image resolution (height/width) for multimodal inputs. If None, uses model defaults.
     """
 
-    _VALID_DICT_FIELDS = TrainingArguments._VALID_DICT_FIELDS + ["model_init_kwargs", "ref_model_init_kwargs"]
+    _VALID_DICT_FIELDS = TrainingArguments._VALID_DICT_FIELDS + ["model_init_kwargs", "ref_model_init_kwargs", "image_processor_kwargs"]
 
     # Parameters whose default values are overridden from TrainingArguments
     learning_rate: float = field(
@@ -434,6 +445,32 @@ class ADPOConfig(TrainingArguments):
         metadata={
             "help": "Whether to generate and log completions from both the model and the reference model to W&B or "
             "Comet during evaluation."
+        },
+    )
+
+    # Parameters for multimodal support
+    multimodal_mode: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether to enable multimodal ADPO training with support for images in chosen and rejected prompts."
+        },
+    )
+    separate_images: bool = field(
+        default=True,
+        metadata={
+            "help": "Whether to use separate images for chosen and rejected prompts. If False, uses same images for both."
+        },
+    )
+    image_processor_kwargs: Optional[dict[str, Any]] = field(
+        default=None,
+        metadata={
+            "help": "Additional keyword arguments to pass to the image processor when processing multimodal inputs."
+        },
+    )
+    max_image_size: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "Maximum image resolution (height/width) for multimodal inputs. If None, uses model defaults."
         },
     )
 
