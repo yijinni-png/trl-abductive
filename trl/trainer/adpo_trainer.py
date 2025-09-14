@@ -1547,6 +1547,14 @@ class ADPOTrainer(Trainer):
         """
         num_examples = batch["response_input_ids"].shape[0]
 
+        # 🚨 QWEN2.5-VL COMPATIBILITY: Check if we have pixel_values that need special handling
+        has_pixel_values = any(key.startswith(("chosen_pixel_values", "rejected_pixel_values", "pixel_values")) for key in batch.keys())
+        is_qwen_vl = hasattr(model, 'config') and hasattr(model.config, 'model_type') and 'qwen2_5_vl' in str(model.config.model_type).lower()
+        
+        if has_pixel_values and is_qwen_vl:
+            # Use separate forward passes for Qwen2.5-VL to avoid pixel concatenation issues
+            return self._separate_forward_for_vision_model(model, batch, is_ref_model)
+
         concatenated_batch = self.concatenated_inputs(batch, padding_value=self.padding_value)
 
         model_kwargs = {"use_cache": False}
@@ -1750,6 +1758,178 @@ class ADPOTrainer(Trainer):
             output["aux_loss"] = outputs.aux_loss
 
         return output
+
+    def _separate_forward_for_vision_model(
+        self, model: nn.Module, batch: dict[str, Union[list, torch.LongTensor]], is_ref_model: bool = False
+    ):
+        """
+        Alternative to concatenated_forward for vision models that can't handle concatenated pixel_values.
+        
+        Processes chosen and rejected inputs separately, then combines results.
+        Specifically designed for Qwen2.5-VL and similar models.
+        """
+        num_examples = batch["response_input_ids"].shape[0]
+        
+        # Process chosen and rejected separately
+        chosen_batch = self._extract_chosen_batch(batch)
+        rejected_batch = self._extract_rejected_batch(batch)
+        
+        # Forward pass for chosen
+        chosen_output = self._single_forward_pass(model, chosen_batch, is_ref_model)
+        
+        # Forward pass for rejected  
+        rejected_output = self._single_forward_pass(model, rejected_batch, is_ref_model)
+        
+        # Combine outputs to match concatenated_forward format
+        output = {}
+        
+        # Combine logps
+        chosen_logps = chosen_output["all_logps"]
+        rejected_logps = rejected_output["all_logps"]
+        output["chosen_logps"] = chosen_logps
+        output["rejected_logps"] = rejected_logps
+        
+        # Combine logits by concatenating
+        chosen_logits = chosen_output["logits"]
+        rejected_logits = rejected_output["logits"]  
+        output["logits"] = torch.cat([chosen_logits, rejected_logits], dim=0)
+        
+        # Calculate mean logits
+        chosen_loss_mask = chosen_output["loss_mask"]
+        rejected_loss_mask = rejected_output["loss_mask"]
+        
+        if chosen_loss_mask.sum() > 0:
+            mean_chosen_logits = chosen_logits[chosen_loss_mask].mean()
+        else:
+            mean_chosen_logits = chosen_logits.mean()
+            
+        if rejected_loss_mask.sum() > 0:
+            mean_rejected_logits = rejected_logits[rejected_loss_mask].mean()
+        else:
+            mean_rejected_logits = rejected_logits.mean()
+            
+        output["mean_chosen_logits"] = mean_chosen_logits
+        output["mean_rejected_logits"] = mean_rejected_logits
+        
+        # Handle auxiliary loss if present
+        if self.aux_loss_enabled:
+            chosen_aux_loss = chosen_output.get("aux_loss", 0)
+            rejected_aux_loss = rejected_output.get("aux_loss", 0)
+            output["aux_loss"] = (chosen_aux_loss + rejected_aux_loss) / 2
+        
+        # Handle weighting if enabled
+        if self.use_weighting:
+            chosen_weights = chosen_output.get("chosen_weights", None)
+            rejected_weights = rejected_output.get("rejected_weights", None)
+            if chosen_weights is not None and rejected_weights is not None:
+                output["chosen_weights"] = chosen_weights
+                output["rejected_weights"] = rejected_weights
+        
+        return output
+
+    def _extract_chosen_batch(self, batch: dict[str, Union[list, torch.LongTensor]]) -> dict[str, torch.LongTensor]:
+        """Extract chosen inputs from multimodal batch."""
+        chosen_batch = {}
+        
+        # Text inputs
+        chosen_batch["prompt_input_ids"] = batch["chosen_input_ids"]
+        chosen_batch["prompt_attention_mask"] = batch["chosen_attention_mask"]  
+        chosen_batch["completion_input_ids"] = batch["chosen_response_input_ids"]
+        chosen_batch["completion_attention_mask"] = batch["chosen_response_attention_mask"]
+        
+        # Vision inputs
+        if "chosen_pixel_values" in batch:
+            chosen_batch["pixel_values"] = batch["chosen_pixel_values"]
+        if "chosen_pixel_attention_mask" in batch:
+            chosen_batch["pixel_attention_mask"] = batch["chosen_pixel_attention_mask"]
+        if "chosen_image_grid_thw" in batch:
+            chosen_batch["image_grid_thw"] = batch["chosen_image_grid_thw"]
+        if "chosen_image_sizes" in batch:
+            chosen_batch["image_sizes"] = batch["chosen_image_sizes"]
+            
+        return chosen_batch
+
+    def _extract_rejected_batch(self, batch: dict[str, Union[list, torch.LongTensor]]) -> dict[str, torch.LongTensor]:
+        """Extract rejected inputs from multimodal batch."""
+        rejected_batch = {}
+        
+        # Text inputs
+        rejected_batch["prompt_input_ids"] = batch["rejected_input_ids"]
+        rejected_batch["prompt_attention_mask"] = batch["rejected_attention_mask"]
+        rejected_batch["completion_input_ids"] = batch["rejected_response_input_ids"] 
+        rejected_batch["completion_attention_mask"] = batch["rejected_response_attention_mask"]
+        
+        # Vision inputs
+        if "rejected_pixel_values" in batch:
+            rejected_batch["pixel_values"] = batch["rejected_pixel_values"]
+        if "rejected_pixel_attention_mask" in batch:
+            rejected_batch["pixel_attention_mask"] = batch["rejected_pixel_attention_mask"]
+        if "rejected_image_grid_thw" in batch:
+            rejected_batch["image_grid_thw"] = batch["rejected_image_grid_thw"]
+        if "rejected_image_sizes" in batch:
+            rejected_batch["image_sizes"] = batch["rejected_image_sizes"]
+            
+        return rejected_batch
+
+    def _single_forward_pass(self, model: nn.Module, single_batch: dict[str, torch.LongTensor], is_ref_model: bool = False) -> dict:
+        """Run forward pass on a single (chosen or rejected) batch."""
+        model_kwargs = {"use_cache": False}
+        if self.aux_loss_enabled:
+            model_kwargs["output_router_logits"] = True
+            
+        # Add vision inputs
+        if "pixel_values" in single_batch:
+            model_kwargs["pixel_values"] = single_batch["pixel_values"]
+        if "pixel_attention_mask" in single_batch:
+            model_kwargs["pixel_attention_mask"] = single_batch["pixel_attention_mask"]
+        if "image_grid_thw" in single_batch:
+            model_kwargs["image_grid_thw"] = single_batch["image_grid_thw"]
+        if "image_sizes" in single_batch:
+            model_kwargs["image_sizes"] = single_batch["image_sizes"]
+            
+        # Prepare text inputs
+        prompt_input_ids = single_batch["prompt_input_ids"]
+        prompt_attention_mask = single_batch["prompt_attention_mask"]
+        completion_input_ids = single_batch["completion_input_ids"]
+        completion_attention_mask = single_batch["completion_attention_mask"]
+        
+        # Concatenate prompt and completion
+        input_ids = torch.cat((prompt_input_ids, completion_input_ids), dim=1)
+        attention_mask = torch.cat((prompt_attention_mask, completion_attention_mask), dim=1)
+        loss_mask = torch.cat(
+            (torch.zeros_like(prompt_attention_mask), completion_attention_mask), dim=1
+        )
+        
+        # Flush left to reduce memory usage
+        from .utils import flush_left
+        attention_mask, input_ids, loss_mask = flush_left(attention_mask, input_ids, loss_mask)
+        
+        model_kwargs["attention_mask"] = attention_mask
+        model_kwargs["output_hidden_states"] = True
+        
+        # Forward pass
+        outputs = model(input_ids, **model_kwargs)
+        logits = outputs.logits
+        
+        # Calculate logps
+        labels = torch.roll(input_ids, shifts=-1, dims=1)
+        loss_mask = torch.roll(loss_mask, shifts=-1, dims=1).bool()
+        
+        per_token_logps = self.get_batch_logps(
+            logits, labels, loss_mask, return_per_token_logps=True
+        )
+        all_logps = per_token_logps.sum(-1)
+        
+        result = {
+            "logits": logits,
+            "all_logps": all_logps,
+            "loss_mask": loss_mask,
+        }
+        
+        if self.aux_loss_enabled:
+            result["aux_loss"] = outputs.aux_loss
+            
+        return result
 
     def get_batch_loss_metrics(
         self,
