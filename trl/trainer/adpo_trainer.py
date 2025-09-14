@@ -327,7 +327,44 @@ class ADPOTrainer(Trainer):
             # The `model` with adapters turned off will be used as the reference model
             self.ref_model = None
         else:
-            self.ref_model = create_reference_model(model)
+            # Check if DeepSpeed ZeRO-3 is enabled
+            if hasattr(args, 'deepspeed') and args.deepspeed:
+                import json
+                if isinstance(args.deepspeed, str):
+                    # Load deepspeed config file
+                    try:
+                        with open(args.deepspeed, 'r') as f:
+                            deepspeed_config = json.load(f)
+                        zero_stage = deepspeed_config.get('zero_optimization', {}).get('stage', 0)
+                    except:
+                        zero_stage = 0
+                elif isinstance(args.deepspeed, dict):
+                    zero_stage = args.deepspeed.get('zero_optimization', {}).get('stage', 0)
+                else:
+                    zero_stage = 0
+                
+                # If ZeRO-3 is enabled, create reference model directly
+                if zero_stage == 3:
+                    if self.is_vision_model:
+                        from transformers import AutoModelForVision2Seq
+                        model_name = getattr(args, 'model_name_or_path', None) or model.config.name_or_path
+                        self.ref_model = AutoModelForVision2Seq.from_pretrained(
+                            model_name,
+                            torch_dtype=model.dtype,
+                            device_map=None  # Let DeepSpeed handle device placement
+                        )
+                    else:
+                        from transformers import AutoModelForCausalLM
+                        model_name = getattr(args, 'model_name_or_path', None) or model.config.name_or_path
+                        self.ref_model = AutoModelForCausalLM.from_pretrained(
+                            model_name,
+                            torch_dtype=model.dtype,
+                            device_map=None  # Let DeepSpeed handle device placement
+                        )
+                else:
+                    self.ref_model = create_reference_model(model)
+            else:
+                self.ref_model = create_reference_model(model)
 
         # Disable dropout in the model and reference model
         if args.disable_dropout:
