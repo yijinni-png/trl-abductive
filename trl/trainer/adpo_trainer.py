@@ -165,6 +165,14 @@ class DataCollatorForPreference(DataCollatorMixin):
         elif "image_sizes" in examples[0]:
             # Backward compatibility: single image sizes
             output["image_sizes"] = torch.tensor([example["image_sizes"] for example in examples])
+
+        # Handle image grid thw (for Qwen2.5-VL and similar models)
+        if "chosen_image_grid_thw" in examples[0] and "rejected_image_grid_thw" in examples[0]:
+            output["chosen_image_grid_thw"] = torch.tensor([example["chosen_image_grid_thw"] for example in examples])
+            output["rejected_image_grid_thw"] = torch.tensor([example["rejected_image_grid_thw"] for example in examples])
+        elif "image_grid_thw" in examples[0]:
+            # Backward compatibility: single image grid thw
+            output["image_grid_thw"] = torch.tensor([example["image_grid_thw"] for example in examples])
         if "ref_chosen_logps" in examples[0] and "ref_rejected_logps" in examples[0]:
             output["ref_chosen_logps"] = ref_chosen_logps
             output["ref_rejected_logps"] = ref_rejected_logps
@@ -327,44 +335,7 @@ class ADPOTrainer(Trainer):
             # The `model` with adapters turned off will be used as the reference model
             self.ref_model = None
         else:
-            # Check if DeepSpeed ZeRO-3 is enabled
-            if hasattr(args, 'deepspeed') and args.deepspeed:
-                import json
-                if isinstance(args.deepspeed, str):
-                    # Load deepspeed config file
-                    try:
-                        with open(args.deepspeed, 'r') as f:
-                            deepspeed_config = json.load(f)
-                        zero_stage = deepspeed_config.get('zero_optimization', {}).get('stage', 0)
-                    except:
-                        zero_stage = 0
-                elif isinstance(args.deepspeed, dict):
-                    zero_stage = args.deepspeed.get('zero_optimization', {}).get('stage', 0)
-                else:
-                    zero_stage = 0
-                
-                # If ZeRO-3 is enabled, create reference model directly
-                if zero_stage == 3:
-                    if self.is_vision_model:
-                        from transformers import AutoModelForVision2Seq
-                        model_name = getattr(args, 'model_name_or_path', None) or model.config.name_or_path
-                        self.ref_model = AutoModelForVision2Seq.from_pretrained(
-                            model_name,
-                            torch_dtype=model.dtype,
-                            device_map=None  # Let DeepSpeed handle device placement
-                        )
-                    else:
-                        from transformers import AutoModelForCausalLM
-                        model_name = getattr(args, 'model_name_or_path', None) or model.config.name_or_path
-                        self.ref_model = AutoModelForCausalLM.from_pretrained(
-                            model_name,
-                            torch_dtype=model.dtype,
-                            device_map=None  # Let DeepSpeed handle device placement
-                        )
-                else:
-                    self.ref_model = create_reference_model(model)
-            else:
-                self.ref_model = create_reference_model(model)
+            self.ref_model = create_reference_model(model)
 
         # Disable dropout in the model and reference model
         if args.disable_dropout:
@@ -845,12 +816,16 @@ class ADPOTrainer(Trainer):
                 output["chosen_pixel_attention_mask"] = chosen_processed["pixel_attention_mask"][0]
             if "image_sizes" in chosen_processed:
                 output["chosen_image_sizes"] = chosen_processed["image_sizes"][0]
+            if "image_grid_thw" in chosen_processed:
+                output["chosen_image_grid_thw"] = chosen_processed["image_grid_thw"][0]
             
             # Add optional fields for rejected
             if "pixel_attention_mask" in rejected_processed:
                 output["rejected_pixel_attention_mask"] = rejected_processed["pixel_attention_mask"][0]
             if "image_sizes" in rejected_processed:
                 output["rejected_image_sizes"] = rejected_processed["image_sizes"][0]
+            if "image_grid_thw" in rejected_processed:
+                output["rejected_image_grid_thw"] = rejected_processed["image_grid_thw"][0]
                 
         else:
             # Standard format (backward compatibility): single image set with prompt
@@ -1053,6 +1028,8 @@ class ADPOTrainer(Trainer):
                 - `"rejected_pixel_attention_mask"`: Tensor for pixel attention masks of rejected images.
                 - `"chosen_image_sizes"`: Tensor for image sizes of chosen images.
                 - `"rejected_image_sizes"`: Tensor for image sizes of rejected images.
+                - `"chosen_image_grid_thw"`: Tensor for image grid dimensions (time, height, width) of chosen images.
+                - `"rejected_image_grid_thw"`: Tensor for image grid dimensions (time, height, width) of rejected images.
                 
                 For backward compatibility (optional):
                 - `"pixel_values"`: Tensor for pixel values (duplicated for both chosen and rejected).
@@ -1108,6 +1085,13 @@ class ADPOTrainer(Trainer):
         elif "image_sizes" in batch:
             # Backward compatibility: duplicate same image sizes
             output["image_sizes"] = torch.cat([batch["image_sizes"], batch["image_sizes"]], dim=0)
+
+        # Handle image grid thw (for Qwen2.5-VL and similar models)
+        if "chosen_image_grid_thw" in batch and "rejected_image_grid_thw" in batch:
+            output["image_grid_thw"] = torch.cat([batch["chosen_image_grid_thw"], batch["rejected_image_grid_thw"]], dim=0)
+        elif "image_grid_thw" in batch:
+            # Backward compatibility: duplicate same image grid thw
+            output["image_grid_thw"] = torch.cat([batch["image_grid_thw"], batch["image_grid_thw"]], dim=0)
 
         # Concatenate the chosen and rejected prompts
         max_prompt_length = max(batch["chosen_input_ids"].shape[1], batch["rejected_input_ids"].shape[1])
@@ -1327,6 +1311,8 @@ class ADPOTrainer(Trainer):
             model_kwargs["pixel_attention_mask"] = concatenated_batch["pixel_attention_mask"]
         if "image_sizes" in concatenated_batch:
             model_kwargs["image_sizes"] = concatenated_batch["image_sizes"]
+        if "image_grid_thw" in concatenated_batch:
+            model_kwargs["image_grid_thw"] = concatenated_batch["image_grid_thw"]
 
         prompt_attention_mask = concatenated_batch["prompt_attention_mask"]
         completion_attention_mask = concatenated_batch["completion_attention_mask"]
@@ -1574,6 +1560,8 @@ class ADPOTrainer(Trainer):
             model_kwargs["pixel_attention_mask"] = concatenated_batch["pixel_attention_mask"]
         if "image_sizes" in concatenated_batch:
             model_kwargs["image_sizes"] = concatenated_batch["image_sizes"]
+        if "image_grid_thw" in concatenated_batch:
+            model_kwargs["image_grid_thw"] = concatenated_batch["image_grid_thw"]
 
         prompt_input_ids = concatenated_batch["prompt_input_ids"]
         prompt_attention_mask = concatenated_batch["prompt_attention_mask"]
