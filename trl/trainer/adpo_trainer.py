@@ -96,19 +96,12 @@ class DataCollatorForPreference(DataCollatorMixin):
     return_tensors: str = "pt"
 
     def torch_call(self, examples: list[Union[list[int], Any, dict[str, Any]]]) -> dict[str, Any]:
-        # Convert to tensor
-        print('='*60)
-        print("DEBUG: Received a batch of", len(examples), "examples")
+        # Convert to tensor - validate examples silently
         for idx, ex in enumerate(examples):
             missing_keys = [k for k in ["response_input_ids", "chosen_input_ids", "rejected_input_ids"] if k not in ex]
             empty_keys = [k for k in ["response_input_ids", "chosen_input_ids", "rejected_input_ids"] if k in ex and not ex[k]]
             if missing_keys or empty_keys:
-                print(f"BAD EXAMPLE in collator, batch idx {idx}, dataset idx {ex.get('__idx__', 'unknown')}: {ex}")
-                print(f"    missing_keys: {missing_keys}, empty keys: {empty_keys}")
-                print(f"    example: {repr(ex)}")
-            else:
-                print(f"GOOD EXAMPLE at batch idx {idx}:")
-        print('='*60)
+                print(f"⚠️  Warning: Invalid example in batch {idx}: missing={missing_keys}, empty={empty_keys}")
         response_input_ids = [torch.tensor(example["response_input_ids"]) for example in examples]
         response_attention_mask = [torch.ones_like(input_ids) for input_ids in response_input_ids]
         chosen_input_ids = [torch.tensor(example["chosen_input_ids"]) for example in examples]
@@ -440,14 +433,16 @@ class ADPOTrainer(Trainer):
 
         # Dataset preparation
         train_dataset = self._prepare_dataset(train_dataset, processing_class, args, "train")
-        print("DEBUG: Checking processed train_dataset for input ids keys...")
-        for i in range(len(train_dataset)):
+        # Validate dataset silently
+        validation_errors = 0
+        for i in range(min(10, len(train_dataset))):
             ex = train_dataset[i]
             missing = [k for k in ["response_input_ids", "chosen_input_ids", "rejected_input_ids"]
                     if k not in ex or not isinstance(ex[k], list) or len(ex[k]) == 0]
             if missing:
-                print(f"BAD ROW at {i}: missing keys {missing}, ex: {ex}")
-        print("Check completed.")
+                validation_errors += 1
+        if validation_errors > 0:
+            print(f"⚠️  Found {validation_errors} examples with missing keys in first 10 samples")
         if eval_dataset is not None:
             if isinstance(eval_dataset, dict):
                 eval_dataset = {
@@ -655,12 +650,15 @@ class ADPOTrainer(Trainer):
             # Tokenize the dataset
             if isinstance(dataset, Dataset):  # `IterableDataset.map` does not support `desc`
                 map_kwargs["desc"] = f"Tokenizing {dataset_name} dataset"
-            print(f'DEBUG: Remove examples with missing or empty responses.')
-            for i in range(len(dataset)):
+            # Check for missing responses in first few examples
+            empty_responses = 0
+            for i in range(min(10, len(dataset))):
                 ex = dataset[i]
                 if "response" not in ex or not ex["response"]:
-                    print(f"[PRE-TOKENIZATION] Example {i} missing or empty 'response': {ex}")
-            # Set load_from_cache_file=False for DEBUGGING
+                    empty_responses += 1
+            if empty_responses > 0:
+                print(f"⚠️  Found {empty_responses} examples with missing responses in first 10 samples")
+            # Set load_from_cache_file=False for debugging if needed
             dataset = dataset.map(
                 self.tokenize_row if not self.is_vision_model else self.process_row,
                 remove_columns=["chosen", "rejected"],
@@ -678,16 +676,13 @@ class ADPOTrainer(Trainer):
             
         # === ADD THIS FILTER TO SKIP BROKEN ROWS ===
         def has_required_keys(example):
-            # You can be stricter if you want to check for non-empty lists too
-            if example['response_input_ids'] is None or example['chosen_input_ids'] is None or example['rejected_input_ids'] is None:
-                print("DEBUG: Broken row:", example)
-            if len(example['response_input_ids']) == 0 or len(example['chosen_input_ids']) == 0 or len(example['rejected_input_ids']) == 0:
-                print("DEBUG: Broken row:", example)
             return all(k in example and example[k] and len(example[k]) > 0 for k in ["response_input_ids", "chosen_input_ids", "rejected_input_ids"])
-        print("Before filter, dataset length:", len(dataset))
+        
+        original_len = len(dataset)
         dataset = dataset.filter(has_required_keys)
-        print("After filter, dataset length:", len(dataset))
-        print("First 2 examples after filter:", [dataset[i] for i in range(2)])
+        filtered_len = len(dataset)
+        if original_len != filtered_len:
+            print(f"🔍 Filtered dataset: {original_len} → {filtered_len} examples ({original_len - filtered_len} removed)")
         # ===========================================
         dataset = dataset.map(lambda ex, idx: {**ex, "__idx__": idx}, with_indices=True)
         return dataset
