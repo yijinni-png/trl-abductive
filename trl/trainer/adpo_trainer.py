@@ -1547,26 +1547,12 @@ class ADPOTrainer(Trainer):
         """
         num_examples = batch["response_input_ids"].shape[0]
 
-        # 🚨 QWEN2.5-VL COMPATIBILITY: Check if we have pixel_values that need special handling
-        has_pixel_values = any(key.startswith(("chosen_pixel_values", "rejected_pixel_values", "pixel_values")) for key in batch.keys())
+        # 🚨 VISION MODEL COMPATIBILITY: Check if we have pixel_values that might cause concatenation issues
+        has_pixel_values = any("pixel_values" in key for key in batch.keys())
         
-        # More comprehensive detection for Qwen2.5-VL models
-        is_qwen_vl = False
-        if hasattr(model, 'config'):
-            model_type = getattr(model.config, 'model_type', '')
-            model_name = getattr(model.config, '_name_or_path', '')
-            architecture = getattr(model.config, 'architectures', [])
-            
-            is_qwen_vl = (
-                'qwen2_5_vl' in str(model_type).lower() or
-                'qwen2.5-vl' in str(model_name).lower() or 
-                any('Qwen2.5VL' in str(arch) for arch in architecture) or
-                'Qwen/Qwen2.5-VL' in str(model_name)
-            )
-        
-        if has_pixel_values and is_qwen_vl:
-            print(f"🔧 Detected Qwen2.5-VL model - using separate forward passes to avoid pixel concatenation")
-            # Use separate forward passes for Qwen2.5-VL to avoid pixel concatenation issues
+        if has_pixel_values and self.is_vision_model:
+            print(f"🔧 Detected vision model with pixel_values - using separate forward passes to avoid concatenation issues")
+            # Use separate forward passes for vision models to avoid pixel concatenation issues
             return self._separate_forward_for_vision_model(model, batch, is_ref_model)
 
         concatenated_batch = self.concatenated_inputs(batch, padding_value=self.padding_value)
