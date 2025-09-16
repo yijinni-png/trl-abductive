@@ -1132,6 +1132,15 @@ class ADPOTrainer(Trainer):
         """
         device = self.accelerator.device
 
+        # DEBUG: Print log probabilities for debugging
+        if hasattr(self, '_debug_count') and self._debug_count <= 3:
+            print(f"🔍 DEBUG dpo_loss:")
+            print(f"   chosen_logps: {chosen_logps.mean().item():.6f} ± {chosen_logps.std().item():.6f}")
+            print(f"   rejected_logps: {rejected_logps.mean().item():.6f} ± {rejected_logps.std().item():.6f}")
+            print(f"   ref_chosen_logps: {ref_chosen_logps.mean().item():.6f} ± {ref_chosen_logps.std().item():.6f}")
+            print(f"   ref_rejected_logps: {ref_rejected_logps.mean().item():.6f} ± {ref_rejected_logps.std().item():.6f}")
+            print(f"   logp_diff (chosen-rejected): {(chosen_logps - rejected_logps).mean().item():.6f}")
+
         # Get the log ratios for the chosen and rejected responses
         chosen_logratios = chosen_logps.to(device) - (not self.reference_free) * ref_chosen_logps.to(device)
         rejected_logratios = rejected_logps.to(device) - (not self.reference_free) * ref_rejected_logps.to(device)
@@ -1936,6 +1945,20 @@ class ADPOTrainer(Trainer):
     ):
         """Compute the DPO loss and other metrics for the given batch of inputs for train or test."""
         metrics = {}
+        
+        # DEBUG: Print batch structure for debugging
+        if train_eval == "eval" and hasattr(self, '_debug_count') and self._debug_count < 3:
+            if not hasattr(self, '_debug_count'):
+                self._debug_count = 0
+            self._debug_count += 1
+            
+            print(f"🔍 DEBUG get_batch_loss_metrics (call #{self._debug_count}):")
+            print(f"   Batch keys: {list(batch.keys())}")
+            for key, value in batch.items():
+                if isinstance(value, torch.Tensor) and key in ['chosen_input_ids', 'rejected_input_ids', 'response_input_ids']:
+                    print(f"   {key} shape: {value.shape}")
+                    if value.numel() > 0:
+                        print(f"   {key} sample: {value[0][:10].tolist()}...")  # First 10 tokens
 
         if self.args.use_liger_loss:
             model_output = self._compute_loss_liger(model, batch)
