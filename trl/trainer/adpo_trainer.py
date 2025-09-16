@@ -840,44 +840,50 @@ class ADPOTrainer(Trainer):
             if "image_grid_thw" in rejected_processed:
                 output["rejected_image_grid_thw"] = rejected_processed["image_grid_thw"][0]
                 
-        else:
-            # Standard format (backward compatibility): single image set with prompt
-            processed_features = processor(images=features["images"], text=features["prompt"], add_special_tokens=False)
+            else:
+                # Standard format (backward compatibility): single image set with prompt
+                processed_features = processor(images=features["images"], text=features["prompt"], add_special_tokens=False)
 
-            prompt_input_ids = processed_features["input_ids"][0]
-            pixel_values = processed_features["pixel_values"][0]
-            chosen_input_ids = tokenizer(features["chosen"], add_special_tokens=False)["input_ids"]
-            rejected_input_ids = tokenizer(features["rejected"], add_special_tokens=False)["input_ids"]
+                prompt_input_ids = processed_features["input_ids"][0]
+                pixel_values = processed_features["pixel_values"][0]
+                chosen_input_ids = tokenizer(features["chosen"], add_special_tokens=False)["input_ids"]
+                rejected_input_ids = tokenizer(features["rejected"], add_special_tokens=False)["input_ids"]
 
-            # Add special tokens (typically for encoder-decoder models)
-            if add_special_tokens:
-                if tokenizer.bos_token_id is not None:
-                    prompt_input_ids = [tokenizer.bos_token_id] + prompt_input_ids
-                if tokenizer.eos_token_id is not None:
-                    prompt_input_ids = prompt_input_ids + [tokenizer.eos_token_id]
-            chosen_input_ids = chosen_input_ids + [tokenizer.eos_token_id]
-            rejected_input_ids = rejected_input_ids + [tokenizer.eos_token_id]
+                # Add special tokens (typically for encoder-decoder models)
+                if add_special_tokens:
+                    if tokenizer.bos_token_id is not None:
+                        prompt_input_ids = [tokenizer.bos_token_id] + prompt_input_ids
+                    if tokenizer.eos_token_id is not None:
+                        prompt_input_ids = prompt_input_ids + [tokenizer.eos_token_id]
+                chosen_input_ids = chosen_input_ids + [tokenizer.eos_token_id]
+                rejected_input_ids = rejected_input_ids + [tokenizer.eos_token_id]
 
-            # Truncate prompt and completion sequences
-            if max_prompt_length is not None:
-                prompt_input_ids = prompt_input_ids[-max_prompt_length:]
-            if max_completion_length is not None:
-                chosen_input_ids = chosen_input_ids[:max_completion_length]
-                rejected_input_ids = rejected_input_ids[:max_completion_length]
+                # Truncate prompt and completion sequences
+                if max_prompt_length is not None:
+                    prompt_input_ids = prompt_input_ids[-max_prompt_length:]
+                if max_completion_length is not None:
+                    chosen_input_ids = chosen_input_ids[:max_completion_length]
+                    rejected_input_ids = rejected_input_ids[:max_completion_length]
 
-            output = {
-                "prompt_input_ids": prompt_input_ids,
-                "pixel_values": pixel_values,
-                "chosen_input_ids": chosen_input_ids,
-                "rejected_input_ids": rejected_input_ids,
-            }
+                output = {
+                    "prompt_input_ids": prompt_input_ids,
+                    "pixel_values": pixel_values,
+                    "chosen_input_ids": chosen_input_ids,
+                    "rejected_input_ids": rejected_input_ids,
+                }
 
-            if "pixel_attention_mask" in processed_features:
-                output["pixel_attention_mask"] = processed_features["pixel_attention_mask"][0]
-            if "image_sizes" in processed_features:
-                output["image_sizes"] = processed_features["image_sizes"][0]
+                if "pixel_attention_mask" in processed_features:
+                    output["pixel_attention_mask"] = processed_features["pixel_attention_mask"][0]
+                if "image_sizes" in processed_features:
+                    output["image_sizes"] = processed_features["image_sizes"][0]
 
-        return output
+            return output
+        except Exception as e:
+            print(f"❌ ADPO process_row EXCEPTION: {str(e)}")
+            print(f"   Available keys: {list(features.keys())}")
+            import traceback
+            traceback.print_exc()
+            return features  # Return original features if processing fails
 
     def _set_signature_columns_if_needed(self):
         # If `self.args.remove_unused_columns` is True, non-signature columns are removed.
