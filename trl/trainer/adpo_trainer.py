@@ -630,8 +630,6 @@ class ADPOTrainer(Trainer):
             # Extract response if needed
             if isinstance(dataset, Dataset):  # `IterableDataset.map` does not support `desc`
                 map_kwargs["desc"] = f"Extracting response in {dataset_name} dataset"
-            # dataset = dataset.map(maybe_extract_response, **map_kwargs)
-            # Set load_from_cache_file=False for DEBUGGING
             dataset = dataset.map(maybe_extract_response, **map_kwargs)
             # print("DEBUG: After maybe_extract_response, first 2 rows:", dataset[:2])
 
@@ -659,6 +657,8 @@ class ADPOTrainer(Trainer):
             if empty_responses > 0:
                 print(f"⚠️  Found {empty_responses} examples with missing responses in first 10 samples")
             # Set load_from_cache_file=False for debugging if needed
+            print(f"🔍 DEBUG: is_vision_model = {self.is_vision_model}")
+            print(f"🔍 DEBUG: Using {'process_row' if self.is_vision_model else 'tokenize_row'} for tokenization")
             dataset = dataset.map(
                 self.tokenize_row if not self.is_vision_model else self.process_row,
                 remove_columns=["chosen", "rejected"],
@@ -754,14 +754,32 @@ class ADPOTrainer(Trainer):
         - Uses features["rejected_images"] with features["rejected"] text
         - Outputs chosen_pixel_values and rejected_pixel_values separately
         """
-        processor, tokenizer = processing_class, processing_class.tokenizer  # the processing class is a processor
-        
-        # Check if this is multimodal ADPO format (separate images for chosen/rejected)
-        has_separate_images = "chosen_images" in features and "rejected_images" in features
-        
-        if has_separate_images:
-            # Multimodal ADPO: Process chosen and rejected with their respective images
-            chosen_processed = processor(
+        try:
+            # Debug: Print available keys for first few calls
+            if not hasattr(process_row, '_debug_count'):
+                process_row._debug_count = 0
+            if process_row._debug_count < 3:
+                process_row._debug_count += 1
+                print(f"🔍 DEBUG process_row (call #{process_row._debug_count}):")
+                print(f"   Available keys: {list(features.keys())}")
+                
+            processor, tokenizer = processing_class, processing_class.tokenizer  # the processing class is a processor
+            
+            # Check if this is multimodal ADPO format (separate images for chosen/rejected)
+            has_separate_images = "chosen_images" in features and "rejected_images" in features
+            
+            # Check for required keys
+            if has_separate_images:
+                required_keys = ["chosen_images", "rejected_images", "chosen", "rejected", "response"]
+                missing_keys = [k for k in required_keys if k not in features]
+                if missing_keys:
+                    print(f"❌ ADPO process_row ERROR: Missing required keys: {missing_keys}")
+                    print(f"   Available keys: {list(features.keys())}")
+                    return features  # Return original features if processing fails
+            
+            if has_separate_images:
+                # Multimodal ADPO: Process chosen and rejected with their respective images
+                chosen_processed = processor(
                 images=features["chosen_images"], 
                 text=features["chosen"], 
                 add_special_tokens=False
