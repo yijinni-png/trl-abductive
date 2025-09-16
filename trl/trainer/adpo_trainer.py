@@ -1829,8 +1829,9 @@ class ADPOTrainer(Trainer):
         # Text inputs
         chosen_batch["prompt_input_ids"] = batch["chosen_input_ids"]
         chosen_batch["prompt_attention_mask"] = batch["chosen_attention_mask"]  
-        chosen_batch["completion_input_ids"] = batch["chosen_response_input_ids"]
-        chosen_batch["completion_attention_mask"] = batch["chosen_response_attention_mask"]
+        # ADPO Fix: Both chosen and rejected use the same response
+        chosen_batch["completion_input_ids"] = batch["response_input_ids"]
+        chosen_batch["completion_attention_mask"] = batch["response_attention_mask"]
         
         # Vision inputs
         if "chosen_pixel_values" in batch:
@@ -1851,8 +1852,9 @@ class ADPOTrainer(Trainer):
         # Text inputs
         rejected_batch["prompt_input_ids"] = batch["rejected_input_ids"]
         rejected_batch["prompt_attention_mask"] = batch["rejected_attention_mask"]
-        rejected_batch["completion_input_ids"] = batch["rejected_response_input_ids"] 
-        rejected_batch["completion_attention_mask"] = batch["rejected_response_attention_mask"]
+        # ADPO Fix: Both chosen and rejected use the same response
+        rejected_batch["completion_input_ids"] = batch["response_input_ids"] 
+        rejected_batch["completion_attention_mask"] = batch["response_attention_mask"]
         
         # Vision inputs
         if "rejected_pixel_values" in batch:
