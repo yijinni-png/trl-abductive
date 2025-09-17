@@ -825,6 +825,7 @@ class ADPOTrainer(Trainer):
         """
         Same as `tokenize_row` but for vision models. Please refer to `tokenize_row` for more information.
         """
+        print(f"🚨 PROCESS_ROW CALLED! Features keys: {list(features.keys())}")
         print(f"DEBUG: process_row called with features keys: {list(features.keys())}")
         if "response" in features:
             print(f"DEBUG: response field exists, content: {features['response'][:100] if isinstance(features['response'], str) else features['response']}")
