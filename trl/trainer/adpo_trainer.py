@@ -147,6 +147,9 @@ class DataCollatorForPreference(DataCollatorMixin):
     return_tensors: str = "pt"
 
     def torch_call(self, examples: list[Union[list[int], Any, dict[str, Any]]]) -> dict[str, Any]:
+        print(f"DEBUG: torch_call called with {len(examples)} examples")
+        print(f"DEBUG: First example keys: {list(examples[0].keys()) if examples else 'No examples'}")
+        
         # Convert to tensor
         # prompt_input_ids = [torch.tensor(example["prompt_input_ids"]) for example in examples]
         # prompt_attention_mask = [torch.ones_like(input_ids) for input_ids in prompt_input_ids]
@@ -159,9 +162,12 @@ class DataCollatorForPreference(DataCollatorMixin):
         # rejected_input_ids = [torch.tensor(example["rejected_input_ids"]) for example in examples]
         # rejected_attention_mask = [torch.ones_like(input_ids) for input_ids in rejected_input_ids]
         if "response_input_ids" in examples[0]:
+            print(f"DEBUG: response_input_ids found in examples[0]")
             response_input_ids = [torch.tensor(example["response_input_ids"]) for example in examples]
             response_attention_mask = [torch.ones_like(input_ids) for input_ids in response_input_ids]
+            print(f"DEBUG: Created {len(response_input_ids)} response_input_ids tensors")
         else:
+            print(f"DEBUG: WARNING - response_input_ids NOT found in examples[0]!")
             # Fallback: use empty list if response_input_ids not available
             # This will be handled later in the training logic
             response_input_ids = []
@@ -679,6 +685,14 @@ class ADPOTrainer(Trainer):
                 },
                 **map_kwargs,
             )
+            
+            print(f"DEBUG: After dataset.map, dataset has {len(dataset)} examples")
+            if len(dataset) > 0:
+                first_example = dataset[0]
+                print(f"DEBUG: First example keys: {list(first_example.keys())}")
+                print(f"DEBUG: Has response_input_ids: {'response_input_ids' in first_example}")
+                if 'response_input_ids' in first_example:
+                    print(f"DEBUG: response_input_ids length: {len(first_example['response_input_ids'])}")
 
         return dataset
 
@@ -762,6 +776,12 @@ class ADPOTrainer(Trainer):
         """
         Same as `tokenize_row` but for vision models. Please refer to `tokenize_row` for more information.
         """
+        print(f"DEBUG: process_row called with features keys: {list(features.keys())}")
+        if "response" in features:
+            print(f"DEBUG: response field exists, content: {features['response'][:100] if isinstance(features['response'], str) else features['response']}")
+        else:
+            print(f"DEBUG: WARNING - 'response' field NOT found in features!")
+        
         processor, tokenizer = processing_class, processing_class.tokenizer  # the processing class is a processor
         # processed_features = processor(images=features["images"], text=features["prompt"], add_special_tokens=False)
         chosen_processed_features = processor(images=features["chosen_images"], text=features["chosen"], add_special_tokens=False)
@@ -774,6 +794,7 @@ class ADPOTrainer(Trainer):
         # prompt_input_ids = processed_features["input_ids"][0]
         # pixel_values = processed_features["pixel_values"][0]
         response_input_ids = tokenizer(features["response"], add_special_tokens=False)["input_ids"]
+        print(f"DEBUG: response_input_ids created, length: {len(response_input_ids)}, first tokens: {response_input_ids[:10]}")
         # chosen_input_ids = tokenizer(features["chosen"], add_special_tokens=False)["input_ids"]
         # rejected_input_ids = tokenizer(features["rejected"], add_special_tokens=False)["input_ids"]
 
@@ -813,6 +834,8 @@ class ADPOTrainer(Trainer):
         if "image_sizes" in rejected_processed_features:
             output["rejected_image_sizes"] = rejected_processed_features["image_sizes"][0]
 
+        print(f"DEBUG: process_row returning keys: {list(output.keys())}")
+        print(f"DEBUG: process_row response_input_ids length: {len(output['response_input_ids'])}")
         return output
 
     def _set_signature_columns_if_needed(self):

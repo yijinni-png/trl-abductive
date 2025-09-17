@@ -458,6 +458,10 @@ def maybe_extract_response(example: dict[str, list]) -> dict[str, list]:
             - `"chosen"`: The remainder of the "chosen" completion, with the response removed.
             - `"rejected"`: The remainder of the "rejected" completion, with the response removed.
     """
+    print(f"DEBUG: maybe_extract_response called with keys: {list(example.keys())}")
+    if "response" in example:
+        print(f"DEBUG: response already exists in example: {example['response'][:100] if isinstance(example['response'], str) else example['response']}")
+    
     # Some dataset add a `"response"` column, even though the response is implicit and included in the "chosen" and
     # "rejected" completions. E.g.:
     # {"response": "What color is the sky?",
@@ -465,16 +469,27 @@ def maybe_extract_response(example: dict[str, list]) -> dict[str, list]:
     #  "rejected": [{"role": "user", "content": "What color is the sky?"}, {"role": "assistant", "content": "It is green."}]}
     # That's why we check if the response is also conversational before deciding not to extract it.
     if "chosen" not in example or "rejected" not in example:  # not a preference example
+        print(f"DEBUG: Not a preference example - missing chosen/rejected")
         return example
     if "response" in example:
         # Both conversational or both non-conversational
         chosen_conv = is_conversational({"chosen": example["chosen"]})
         response_conv = is_conversational({"response": example["response"]})
         if (chosen_conv and response_conv) or (not chosen_conv and not response_conv):
+            print(f"DEBUG: Response already exists and compatible, returning as-is")
             return example
+    
+    print(f"DEBUG: Attempting to extract response from chosen/rejected")
     res = extract_response({"chosen": example["chosen"], "rejected": example["rejected"]})
     if 'response' not in res or not res['response']:
-        print(f'maybe_extract_response failed to extract response for:', example)
+        print(f'DEBUG: maybe_extract_response failed to extract response for example with keys: {list(example.keys())}')
+        print(f'DEBUG: chosen type: {type(example.get("chosen"))}, rejected type: {type(example.get("rejected"))}')
+        if isinstance(example.get("chosen"), list) and len(example["chosen"]) > 0:
+            print(f'DEBUG: chosen first element: {example["chosen"][0]}')
+        if isinstance(example.get("rejected"), list) and len(example["rejected"]) > 0:
+            print(f'DEBUG: rejected first element: {example["rejected"][0]}')
+    else:
+        print(f"DEBUG: Successfully extracted response: {res['response'][:100] if isinstance(res['response'], str) else res['response']}")
     return res
 
 def maybe_extract_prompt(example: dict[str, list]) -> dict[str, list]:
