@@ -1562,7 +1562,7 @@ class ADPOTrainer(Trainer):
                 Whether this method is being called for the reference model. If `True`, length desensitization is not
                 applied.
         """
-        num_examples = batch["prompt_input_ids"].shape[0]
+        num_examples = batch["response_input_ids"].shape[0]
 
         concatenated_batch = self.concatenated_inputs(batch, padding_value=self.padding_value)
 
