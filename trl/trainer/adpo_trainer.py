@@ -183,7 +183,7 @@ class DataCollatorForPreference(DataCollatorMixin):
         return output
 
 
-class DPOTrainer(Trainer):
+class ADPOTrainer(Trainer):
     """
     Trainer for Direct Preference Optimization (DPO) method.
 
