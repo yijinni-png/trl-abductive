@@ -845,10 +845,15 @@ class ADPOTrainer(Trainer):
         # Instead, we set them to the columns expected by `DataCollatorForPreference`, hence the override.
         if self._signature_columns is None:
             self._signature_columns = [
-                "prompt_input_ids",
                 "chosen_input_ids",
                 "rejected_input_ids",
-                "image_sizes",
+                "response_input_ids",
+                "chosen_image_sizes",
+                "rejected_image_sizes",
+                "chosen_pixel_values",
+                "rejected_pixel_values",
+                "chosen_pixel_attention_mask",
+                "rejected_pixel_attention_mask",
                 "ref_chosen_logps",
                 "ref_rejected_logps",
             ]
