@@ -790,6 +790,9 @@ class ADPOTrainer(Trainer):
         chosen_processed_features = processor(images=features["chosen_images"], text=features["chosen"], add_special_tokens=False)
         rejected_processed_features = processor(images=features["rejected_images"], text=features["rejected"], add_special_tokens=False)
 
+        print(f"DEBUG: chosen_processed_features keys: {list(chosen_processed_features.keys())}")
+        print(f"DEBUG: rejected_processed_features keys: {list(rejected_processed_features.keys())}")
+
         chosen_input_ids = chosen_processed_features["input_ids"][0]
         rejected_input_ids = rejected_processed_features["input_ids"][0]
         chosen_pixel_values = chosen_processed_features["pixel_values"][0]
@@ -1077,7 +1080,11 @@ class ADPOTrainer(Trainer):
             output["image_sizes"] = torch.cat([batch["chosen_image_sizes"], batch["rejected_image_sizes"]], dim=0)
 
         if "chosen_image_grid_thw" in batch and "rejected_image_grid_thw" in batch:
+            print(f"DEBUG: concatenating image_grid_thw - chosen shape: {batch['chosen_image_grid_thw'].shape if batch['chosen_image_grid_thw'] is not None else 'None'}, rejected shape: {batch['rejected_image_grid_thw'].shape if batch['rejected_image_grid_thw'] is not None else 'None'}")
             output["image_grid_thw"] = torch.cat([batch["chosen_image_grid_thw"], batch["rejected_image_grid_thw"]], dim=0)
+            print(f"DEBUG: final concatenated image_grid_thw shape: {output['image_grid_thw'].shape if output['image_grid_thw'] is not None else 'None'}")
+        else:
+            print(f"DEBUG: image_grid_thw not found in batch - chosen_image_grid_thw in batch: {'chosen_image_grid_thw' in batch}, rejected_image_grid_thw in batch: {'rejected_image_grid_thw' in batch}")
 
         # Concatenate the chosen and rejected completions
         # max_completion_length = max(batch["chosen_input_ids"].shape[1], batch["rejected_input_ids"].shape[1])
