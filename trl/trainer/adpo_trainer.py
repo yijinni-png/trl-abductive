@@ -96,6 +96,52 @@ if is_mlflow_available():
 
 logger = logging.get_logger(__name__)
 
+def get_patch_size_from_processor(processor):
+    """Get patch size from processor configuration"""
+    # Try different ways to get patch_size from processor
+    if hasattr(processor, 'patch_size'):
+        return processor.patch_size
+    elif hasattr(processor, 'image_processor') and hasattr(processor.image_processor, 'patch_size'):
+        return processor.image_processor.patch_size
+    elif hasattr(processor, 'feature_extractor') and hasattr(processor.feature_extractor, 'patch_size'):
+        return processor.feature_extractor.patch_size
+    elif hasattr(processor, 'image_processor') and hasattr(processor.image_processor, 'size'):
+        # Some processors store patch info in size config
+        size_config = processor.image_processor.size
+        if isinstance(size_config, dict) and 'patch_size' in size_config:
+            return size_config['patch_size']
+    else:
+        # Fallback for Qwen2.5-VL and similar models
+        print("DEBUG: Could not find patch_size in processor, using default 14")
+        return 14
+
+def calculate_image_grid_thw(pixel_values, patch_size=14):
+    """
+    Calculate image_grid_thw from pixel_values for a single sample (not batched)
+
+    Args:
+        pixel_values: tensor of shape [channels, height, width] or [num_images, channels, height, width]
+        patch_size: size of each patch (default 14 for Qwen2.5-VL)
+
+    Returns:
+        torch.Tensor: [time, height, width] grid dimensions as torch tensor
+    """
+    if len(pixel_values.shape) == 4:  # [num_images, channels, height, width]
+        num_images, channels, height, width = pixel_values.shape
+        grid_h = height // patch_size
+        grid_w = width // patch_size
+        grid_t = num_images  # For multiple images
+        return torch.tensor([grid_t, grid_h, grid_w], dtype=torch.long)
+    elif len(pixel_values.shape) == 3:  # [channels, height, width]
+        channels, height, width = pixel_values.shape
+        grid_h = height // patch_size
+        grid_w = width // patch_size
+        grid_t = 1  # For single image
+        return torch.tensor([grid_t, grid_h, grid_w], dtype=torch.long)
+    else:
+        # Fallback for unexpected shapes
+        print(f"DEBUG: Unexpected pixel_values shape: {pixel_values.shape}, using default grid [1, 16, 16]")
+        return torch.tensor([1, 16, 16], dtype=torch.long)
 
 def shift_tokens_right(input_ids: torch.Tensor, decoder_start_token_id: int) -> torch.Tensor:
     """Shift input ids one token to the right, and pad with pad_token_id"""
@@ -831,18 +877,36 @@ class ADPOTrainer(Trainer):
             "rejected_input_ids": rejected_input_ids,
         }
 
+        # Get patch size from processor configuration
+        patch_size = get_patch_size_from_processor(processor)
+        print(f"DEBUG: Using patch_size: {patch_size}")
+
+        # Handle pixel attention masks
         if "pixel_attention_mask" in chosen_processed_features:
             output["chosen_pixel_attention_mask"] = chosen_processed_features["pixel_attention_mask"][0]
         if "pixel_attention_mask" in rejected_processed_features:
             output["rejected_pixel_attention_mask"] = rejected_processed_features["pixel_attention_mask"][0]
+
+        # Handle image sizes
         if "image_sizes" in chosen_processed_features:
             output["chosen_image_sizes"] = chosen_processed_features["image_sizes"][0]
         if "image_sizes" in rejected_processed_features:
             output["rejected_image_sizes"] = rejected_processed_features["image_sizes"][0]
+
+        # Handle image_grid_thw - use from processor if available, otherwise calculate
         if "image_grid_thw" in chosen_processed_features:
             output["chosen_image_grid_thw"] = chosen_processed_features["image_grid_thw"][0]
+            print(f"DEBUG: Using chosen_image_grid_thw from processor: {output['chosen_image_grid_thw']}")
+        else:
+            output["chosen_image_grid_thw"] = calculate_image_grid_thw(chosen_pixel_values, patch_size)
+            print(f"DEBUG: Calculated chosen_image_grid_thw: {output['chosen_image_grid_thw']}")
+
         if "image_grid_thw" in rejected_processed_features:
             output["rejected_image_grid_thw"] = rejected_processed_features["image_grid_thw"][0]
+            print(f"DEBUG: Using rejected_image_grid_thw from processor: {output['rejected_image_grid_thw']}")
+        else:
+            output["rejected_image_grid_thw"] = calculate_image_grid_thw(rejected_pixel_values, patch_size)
+            print(f"DEBUG: Calculated rejected_image_grid_thw: {output['rejected_image_grid_thw']}")
 
         print(f"DEBUG: process_row returning keys: {list(output.keys())}")
         print(f"DEBUG: process_row response_input_ids length: {len(output['response_input_ids'])}")
