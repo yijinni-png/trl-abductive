@@ -53,7 +53,7 @@ from transformers.trainer_callback import TrainerCallback
 from transformers.trainer_utils import EvalLoopOutput
 from transformers.utils import is_liger_kernel_available, is_peft_available
 
-from ..data_utils import maybe_apply_chat_template, maybe_extract_prompt
+from ..data_utils import maybe_apply_chat_template, maybe_extract_response
 from ..models import create_reference_model, prepare_deepspeed
 from ..models.utils import prepare_fsdp
 from .callbacks import SyncRefModelCallback
@@ -158,8 +158,14 @@ class DataCollatorForPreference(DataCollatorMixin):
         # chosen_attention_mask = [torch.ones_like(input_ids) for input_ids in chosen_input_ids]
         # rejected_input_ids = [torch.tensor(example["rejected_input_ids"]) for example in examples]
         # rejected_attention_mask = [torch.ones_like(input_ids) for input_ids in rejected_input_ids]
-        response_input_ids = [torch.tensor(example["response_input_ids"]) for example in examples]
-        response_attention_mask = [torch.ones_like(input_ids) for input_ids in response_input_ids]
+        if "response_input_ids" in examples[0]:
+            response_input_ids = [torch.tensor(example["response_input_ids"]) for example in examples]
+            response_attention_mask = [torch.ones_like(input_ids) for input_ids in response_input_ids]
+        else:
+            # Fallback: use empty list if response_input_ids not available
+            # This will be handled later in the training logic
+            response_input_ids = []
+            response_attention_mask = []
         if "chosen_pixel_values" in examples[0] and "rejected_pixel_values" in examples[0]:
             chosen_pixel_values = [torch.tensor(example["chosen_pixel_values"]) for example in examples]
             rejected_pixel_values = [torch.tensor(example["rejected_pixel_values"]) for example in examples]
@@ -645,7 +651,7 @@ class ADPOTrainer(Trainer):
             # Extract prompt if needed
             if isinstance(dataset, Dataset):  # `IterableDataset.map` does not support `desc`
                 map_kwargs["desc"] = f"Extracting prompt in {dataset_name} dataset"
-            dataset = dataset.map(maybe_extract_prompt, **map_kwargs)
+            dataset = dataset.map(maybe_extract_response, **map_kwargs)
 
             # Apply the chat template if needed
             if isinstance(dataset, Dataset):  # `IterableDataset.map` does not support `desc`
@@ -658,6 +664,9 @@ class ADPOTrainer(Trainer):
             if isinstance(dataset, Dataset):  # `IterableDataset.map` does not support `desc`
                 map_kwargs["desc"] = f"Tokenizing {dataset_name} dataset"
 
+            print(f"DEBUG: is_vision_model = {self.is_vision_model}")
+            print(f"DEBUG: Using {'process_row' if self.is_vision_model else 'tokenize_row'}")
+            
             dataset = dataset.map(
                 self.tokenize_row if not self.is_vision_model else self.process_row,
                 remove_columns=["chosen", "rejected"],
