@@ -205,6 +205,9 @@ class DataCollatorForPreference(DataCollatorMixin):
         if "chosen_image_sizes" in examples[0] and "rejected_image_sizes" in examples[0]:
             output["chosen_image_sizes"] = torch.tensor([example["chosen_image_sizes"] for example in examples])
             output["rejected_image_sizes"] = torch.tensor([example["rejected_image_sizes"] for example in examples])
+        if "chosen_image_grid_thw" in examples[0] and "rejected_image_grid_thw" in examples[0]:
+            output["chosen_image_grid_thw"] = torch.tensor([example["chosen_image_grid_thw"] for example in examples])
+            output["rejected_image_grid_thw"] = torch.tensor([example["rejected_image_grid_thw"] for example in examples])
         if "ref_chosen_logps" in examples[0] and "ref_rejected_logps" in examples[0]:
             output["ref_chosen_logps"] = ref_chosen_logps
             output["ref_rejected_logps"] = ref_rejected_logps
@@ -833,6 +836,10 @@ class ADPOTrainer(Trainer):
             output["chosen_image_sizes"] = chosen_processed_features["image_sizes"][0]
         if "image_sizes" in rejected_processed_features:
             output["rejected_image_sizes"] = rejected_processed_features["image_sizes"][0]
+        if "image_grid_thw" in chosen_processed_features:
+            output["chosen_image_grid_thw"] = chosen_processed_features["image_grid_thw"][0]
+        if "image_grid_thw" in rejected_processed_features:
+            output["rejected_image_grid_thw"] = rejected_processed_features["image_grid_thw"][0]
 
         print(f"DEBUG: process_row returning keys: {list(output.keys())}")
         print(f"DEBUG: process_row response_input_ids length: {len(output['response_input_ids'])}")
@@ -850,6 +857,8 @@ class ADPOTrainer(Trainer):
                 "response_input_ids",
                 "chosen_image_sizes",
                 "rejected_image_sizes",
+                "chosen_image_grid_thw",
+                "rejected_image_grid_thw",
                 "chosen_pixel_values",
                 "rejected_pixel_values",
                 "chosen_pixel_attention_mask",
@@ -1066,6 +1075,9 @@ class ADPOTrainer(Trainer):
 
         if "chosen_image_sizes" in batch and "rejected_image_sizes" in batch:
             output["image_sizes"] = torch.cat([batch["chosen_image_sizes"], batch["rejected_image_sizes"]], dim=0)
+
+        if "chosen_image_grid_thw" in batch and "rejected_image_grid_thw" in batch:
+            output["image_grid_thw"] = torch.cat([batch["chosen_image_grid_thw"], batch["rejected_image_grid_thw"]], dim=0)
 
         # Concatenate the chosen and rejected completions
         # max_completion_length = max(batch["chosen_input_ids"].shape[1], batch["rejected_input_ids"].shape[1])
@@ -1330,6 +1342,8 @@ class ADPOTrainer(Trainer):
             model_kwargs["pixel_attention_mask"] = concatenated_batch["pixel_attention_mask"]
         if "image_sizes" in concatenated_batch:
             model_kwargs["image_sizes"] = concatenated_batch["image_sizes"]
+        if "image_grid_thw" in concatenated_batch:
+            model_kwargs["image_grid_thw"] = concatenated_batch["image_grid_thw"]
 
         prompt_attention_mask = concatenated_batch["prompt_attention_mask"]
         completion_attention_mask = concatenated_batch["completion_attention_mask"]
@@ -1577,6 +1591,8 @@ class ADPOTrainer(Trainer):
             model_kwargs["pixel_attention_mask"] = concatenated_batch["pixel_attention_mask"]
         if "image_sizes" in concatenated_batch:
             model_kwargs["image_sizes"] = concatenated_batch["image_sizes"]
+        if "image_grid_thw" in concatenated_batch:
+            model_kwargs["image_grid_thw"] = concatenated_batch["image_grid_thw"]
 
         prompt_input_ids = concatenated_batch["prompt_input_ids"]
         prompt_attention_mask = concatenated_batch["prompt_attention_mask"]
