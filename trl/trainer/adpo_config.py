@@ -416,6 +416,14 @@ class ADPOConfig(TrainingArguments):
             "loss. The paper recommends the default value `discopop_tau=0.05`."
         },
     )
+    loss_weights: Optional[list[float]] = field(
+        default=None,
+        metadata={
+            "help": "List of loss weights for multi-loss combinations. Used when combining multiple loss types. "
+                    "Example: `[0.8, 0.2, 1.0]` for MPO. If not provided, defaults to equal weights (`1.0`) for all loss "
+                    "types."
+        },
+    )
     sync_ref_model: bool = field(
         default=False,
         metadata={
@@ -477,4 +485,16 @@ class ADPOConfig(TrainingArguments):
     def __post_init__(self):
         self.bf16 = not (self.fp16) if self.bf16 is None else self.bf16
 
+        # Normalize loss_type to string format for internal use
+        if hasattr(self.loss_type, "__len__") and len(self.loss_type) == 1:
+            self.loss_type = self.loss_type[0]
+
+        # Validate loss_type
+        if self.loss_weights is not None:
+            loss_types = self.loss_type if isinstance(self.loss_type, list) else [self.loss_type]
+            if len(self.loss_weights) != len(loss_types):
+                raise ValueError(
+                    f"Length of loss_weights list ({self.loss_weights}) must match number of loss types "
+                    f"({loss_types})."
+                )
         super().__post_init__()
