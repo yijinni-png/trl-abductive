@@ -1239,8 +1239,8 @@ class ADPOTrainer(Trainer):
             max_values = torch.max(output['image_grid_thw'], dim=0)[0]
             print(f"DEBUG: max values in image_grid_thw BEFORE clamping: t={max_values[0]}, h={max_values[1]}, w={max_values[2]}")
 
-            # Apply clamping directly here as emergency fix - use conservative limits
-            max_grid_h, max_grid_w = 32, 32  # Conservative limits to prevent CUDA indexing errors
+            # Apply clamping directly here as emergency fix - use very conservative limits
+            max_grid_h, max_grid_w = 16, 16  # Very conservative limits to prevent CUDA indexing errors
             print(f"DEBUG: Applying emergency clamping with conservative limits: h={max_grid_h}, w={max_grid_w}")
             output['image_grid_thw'] = clamp_image_grid_thw(output['image_grid_thw'], max_grid_h, max_grid_w)
 
@@ -1844,6 +1844,17 @@ class ADPOTrainer(Trainer):
                 model_kwargs["position_ids"] = position_ids
             else:
                 model_kwargs["attention_mask"] = attention_mask
+
+            # DEBUG: Check what's actually being passed to the model
+            print(f"DEBUG: About to call model with:")
+            print(f"  input_ids shape: {input_ids.shape}")
+            print(f"  model_kwargs keys: {list(model_kwargs.keys())}")
+            if "image_grid_thw" in model_kwargs:
+                print(f"  image_grid_thw in model_kwargs: {model_kwargs['image_grid_thw']}")
+                max_vals = torch.max(model_kwargs['image_grid_thw'], dim=0)[0]
+                print(f"  image_grid_thw max values: t={max_vals[0]}, h={max_vals[1]}, w={max_vals[2]}")
+            else:
+                print(f"  image_grid_thw NOT in model_kwargs")
 
             outputs = model(input_ids, **model_kwargs)
             logits = outputs.logits
