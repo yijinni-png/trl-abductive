@@ -212,6 +212,26 @@ def apply_chat_template(
     if "response" in example:
         output["response"] = response
 
+    # Preserve image fields and other metadata for vision models
+    image_related_keys = [
+        "chosen_images", "rejected_images", "images",
+        "chosen_image_sizes", "rejected_image_sizes", "image_sizes",
+        "chosen_pixel_values", "rejected_pixel_values", "pixel_values",
+        "chosen_pixel_attention_mask", "rejected_pixel_attention_mask", "pixel_attention_mask",
+        "chosen_image_grid_thw", "rejected_image_grid_thw", "image_grid_thw"
+    ]
+
+    # Also preserve other metadata fields
+    metadata_keys = [
+        "chosen_label", "rejected_label", "org_filename", "mod_filename",
+        "rating_difference_binary", "rating_difference_range"
+    ]
+
+    # Copy over image and metadata fields if they exist
+    for key in image_related_keys + metadata_keys:
+        if key in example:
+            output[key] = example[key]
+
     return output
 
 
