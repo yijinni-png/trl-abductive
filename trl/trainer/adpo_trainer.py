@@ -720,7 +720,7 @@ class ADPOTrainer(Trainer):
                 map_kwargs["desc"] = f"Tokenizing {dataset_name} dataset"
 
             print(f"DEBUG: is_vision_model = {self.is_vision_model}")
-            print(f"DEBUG: Using {'process_row' if self.is_vision_model else 'tokenize_row'}")
+            # print(f"DEBUG: Using {'process_row' if self.is_vision_model else 'tokenize_row'}")
             
             dataset = dataset.map(
                 self.tokenize_row if not self.is_vision_model else self.process_row,
