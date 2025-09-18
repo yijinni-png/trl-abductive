@@ -115,6 +115,59 @@ def get_patch_size_from_processor(processor):
         print("DEBUG: Could not find patch_size in processor, using default 14")
         return 14
 
+def get_max_grid_size_from_processor(processor):
+    """Get maximum supported grid dimensions from processor/model configuration"""
+    # Try to find maximum grid dimensions from processor config
+    max_h, max_w = None, None
+
+    if hasattr(processor, 'image_processor'):
+        img_proc = processor.image_processor
+
+        # Check for explicit max dimensions
+        for attr in ['max_height', 'max_width', 'max_size', 'size']:
+            if hasattr(img_proc, attr):
+                value = getattr(img_proc, attr)
+                if isinstance(value, dict):
+                    max_h = value.get('height') or value.get('max_height') or max_h
+                    max_w = value.get('width') or value.get('max_width') or max_w
+                elif isinstance(value, (int, tuple, list)):
+                    if isinstance(value, int):
+                        max_h = max_w = value
+                    else:
+                        max_h, max_w = (value[0], value[1]) if len(value) >= 2 else (value[0], value[0])
+
+        # Convert pixel dimensions to grid dimensions (divide by patch size)
+        patch_size = get_patch_size_from_processor(processor)
+        if max_h and max_w:
+            max_grid_h = max_h // patch_size
+            max_grid_w = max_w // patch_size
+            print(f"DEBUG: Found max grid size from processor: {max_grid_h}x{max_grid_w} (pixel size {max_h}x{max_w}, patch_size {patch_size})")
+            return max_grid_h, max_grid_w
+
+    # Fallback to conservative defaults for Qwen2.5-VL
+    # Based on common transformer limits, most models support up to 64x64 or 32x32 patches
+    default_max = 64  # Conservative estimate
+    print(f"DEBUG: Using default max grid size: {default_max}x{default_max}")
+    return default_max, default_max
+
+def clamp_image_grid_thw(image_grid_thw, max_grid_h, max_grid_w):
+    """Clamp image_grid_thw values to maximum supported dimensions"""
+    if image_grid_thw is None:
+        return None
+
+    clamped = image_grid_thw.clone()
+    original = image_grid_thw.clone()
+
+    # Clamp height and width dimensions (indices 1 and 2)
+    clamped[1] = torch.clamp(clamped[1], max=max_grid_h)
+    clamped[2] = torch.clamp(clamped[2], max=max_grid_w)
+
+    # Check if any values were clamped
+    if not torch.equal(original, clamped):
+        print(f"DEBUG: Clamped image_grid_thw from {original.tolist()} to {clamped.tolist()}")
+
+    return clamped
+
 def calculate_image_grid_thw(pixel_values, patch_size=14):
     """
     Calculate image_grid_thw from pixel_values for a single sample (not batched)
@@ -925,6 +978,11 @@ class ADPOTrainer(Trainer):
         else:
             output["rejected_image_grid_thw"] = calculate_image_grid_thw(rejected_pixel_values, patch_size)
             print(f"DEBUG: Calculated rejected_image_grid_thw (fallback): {output['rejected_image_grid_thw']}")
+
+        # Apply maximum grid size limits to prevent CUDA indexing errors
+        max_grid_h, max_grid_w = get_max_grid_size_from_processor(processor)
+        output["chosen_image_grid_thw"] = clamp_image_grid_thw(output["chosen_image_grid_thw"], max_grid_h, max_grid_w)
+        output["rejected_image_grid_thw"] = clamp_image_grid_thw(output["rejected_image_grid_thw"], max_grid_h, max_grid_w)
 
         print(f"DEBUG: process_row returning keys: {list(output.keys())}")
         print(f"DEBUG: process_row response_input_ids length: {len(output['response_input_ids'])}")
