@@ -158,9 +158,9 @@ def clamp_image_grid_thw(image_grid_thw, max_grid_h, max_grid_w):
     clamped = image_grid_thw.clone()
     original = image_grid_thw.clone()
 
-    # Clamp height and width dimensions (indices 1 and 2)
-    clamped[1] = torch.clamp(clamped[1], max=max_grid_h)
-    clamped[2] = torch.clamp(clamped[2], max=max_grid_w)
+    # Clamp height and width dimensions (indices 1 and 2 in the last dimension)
+    clamped[..., 1] = torch.clamp(clamped[..., 1], max=max_grid_h)
+    clamped[..., 2] = torch.clamp(clamped[..., 2], max=max_grid_w)
 
     # Check if any values were clamped
     if not torch.equal(original, clamped):
