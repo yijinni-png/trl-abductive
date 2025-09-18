@@ -1163,8 +1163,17 @@ class ADPOTrainer(Trainer):
 
         if "chosen_image_grid_thw" in batch and "rejected_image_grid_thw" in batch:
             print(f"DEBUG: concatenating image_grid_thw - chosen shape: {batch['chosen_image_grid_thw'].shape if batch['chosen_image_grid_thw'] is not None else 'None'}, rejected shape: {batch['rejected_image_grid_thw'].shape if batch['rejected_image_grid_thw'] is not None else 'None'}")
+            print(f"DEBUG: chosen_image_grid_thw values: {batch['chosen_image_grid_thw']}")
+            print(f"DEBUG: rejected_image_grid_thw values: {batch['rejected_image_grid_thw']}")
             output["image_grid_thw"] = torch.cat([batch["chosen_image_grid_thw"], batch["rejected_image_grid_thw"]], dim=0)
             print(f"DEBUG: final concatenated image_grid_thw shape: {output['image_grid_thw'].shape if output['image_grid_thw'] is not None else 'None'}")
+            print(f"DEBUG: final concatenated image_grid_thw values: {output['image_grid_thw']}")
+
+            # Check for potentially problematic values
+            max_values = torch.max(output['image_grid_thw'], dim=0)[0]
+            print(f"DEBUG: max values in image_grid_thw: t={max_values[0]}, h={max_values[1]}, w={max_values[2]}")
+            if max_values[1] > 50 or max_values[2] > 50:
+                print(f"WARNING: Large grid values detected! This might cause CUDA indexing errors.")
         else:
             print(f"DEBUG: image_grid_thw not found in batch - chosen_image_grid_thw in batch: {'chosen_image_grid_thw' in batch}, rejected_image_grid_thw in batch: {'rejected_image_grid_thw' in batch}")
 
