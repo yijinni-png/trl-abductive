@@ -1239,9 +1239,9 @@ class ADPOTrainer(Trainer):
             max_values = torch.max(output['image_grid_thw'], dim=0)[0]
             print(f"DEBUG: max values in image_grid_thw BEFORE clamping: t={max_values[0]}, h={max_values[1]}, w={max_values[2]}")
 
-            # Apply clamping directly here as emergency fix
-            max_grid_h, max_grid_w = get_max_grid_size_from_processor(self.processing_class)
-            print(f"DEBUG: Applying emergency clamping with limits: h={max_grid_h}, w={max_grid_w}")
+            # Apply clamping directly here as emergency fix - use conservative limits
+            max_grid_h, max_grid_w = 32, 32  # Conservative limits to prevent CUDA indexing errors
+            print(f"DEBUG: Applying emergency clamping with conservative limits: h={max_grid_h}, w={max_grid_w}")
             output['image_grid_thw'] = clamp_image_grid_thw(output['image_grid_thw'], max_grid_h, max_grid_w)
 
             # Check values after clamping
