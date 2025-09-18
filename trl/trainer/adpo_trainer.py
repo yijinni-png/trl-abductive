@@ -833,7 +833,9 @@ class ADPOTrainer(Trainer):
             print(f"DEBUG: WARNING - 'response' field NOT found in features!")
         
         processor, tokenizer = processing_class, processing_class.tokenizer  # the processing class is a processor
-        # processed_features = processor(images=features["images"], text=features["prompt"], add_special_tokens=False)
+
+        # Chat template is already applied before process_row is called (at line 715)
+        # So chosen and rejected should already be text strings, not chat format
         chosen_processed_features = processor(images=features["chosen_images"], text=features["chosen"], add_special_tokens=False)
         rejected_processed_features = processor(images=features["rejected_images"], text=features["rejected"], add_special_tokens=False)
 
@@ -894,20 +896,35 @@ class ADPOTrainer(Trainer):
         if "image_sizes" in rejected_processed_features:
             output["rejected_image_sizes"] = rejected_processed_features["image_sizes"][0]
 
-        # Handle image_grid_thw - use from processor if available, otherwise calculate
+        # Handle image_grid_thw - ALWAYS use processor values when available (they're correct!)
         if "image_grid_thw" in chosen_processed_features:
-            output["chosen_image_grid_thw"] = chosen_processed_features["image_grid_thw"][0]
-            print(f"DEBUG: Using chosen_image_grid_thw from processor: {output['chosen_image_grid_thw']}")
+            processor_grid_thw = chosen_processed_features["image_grid_thw"]
+            print(f"DEBUG: Processor provided chosen_image_grid_thw shape: {processor_grid_thw.shape if hasattr(processor_grid_thw, 'shape') else type(processor_grid_thw)}")
+            print(f"DEBUG: Processor provided chosen_image_grid_thw value: {processor_grid_thw}")
+
+            # Handle different formats: might be [[1,30,40]] or [1,30,40]
+            if hasattr(processor_grid_thw, 'shape') and len(processor_grid_thw.shape) > 1:
+                output["chosen_image_grid_thw"] = processor_grid_thw[0]  # Take first row if 2D
+            else:
+                output["chosen_image_grid_thw"] = processor_grid_thw
+            print(f"DEBUG: Final chosen_image_grid_thw: {output['chosen_image_grid_thw']}")
         else:
             output["chosen_image_grid_thw"] = calculate_image_grid_thw(chosen_pixel_values, patch_size)
-            print(f"DEBUG: Calculated chosen_image_grid_thw: {output['chosen_image_grid_thw']}")
+            print(f"DEBUG: Calculated chosen_image_grid_thw (fallback): {output['chosen_image_grid_thw']}")
 
         if "image_grid_thw" in rejected_processed_features:
-            output["rejected_image_grid_thw"] = rejected_processed_features["image_grid_thw"][0]
-            print(f"DEBUG: Using rejected_image_grid_thw from processor: {output['rejected_image_grid_thw']}")
+            processor_grid_thw = rejected_processed_features["image_grid_thw"]
+            print(f"DEBUG: Processor provided rejected_image_grid_thw: {processor_grid_thw}")
+
+            # Handle different formats: might be [[1,30,40]] or [1,30,40]
+            if hasattr(processor_grid_thw, 'shape') and len(processor_grid_thw.shape) > 1:
+                output["rejected_image_grid_thw"] = processor_grid_thw[0]  # Take first row if 2D
+            else:
+                output["rejected_image_grid_thw"] = processor_grid_thw
+            print(f"DEBUG: Final rejected_image_grid_thw: {output['rejected_image_grid_thw']}")
         else:
             output["rejected_image_grid_thw"] = calculate_image_grid_thw(rejected_pixel_values, patch_size)
-            print(f"DEBUG: Calculated rejected_image_grid_thw: {output['rejected_image_grid_thw']}")
+            print(f"DEBUG: Calculated rejected_image_grid_thw (fallback): {output['rejected_image_grid_thw']}")
 
         print(f"DEBUG: process_row returning keys: {list(output.keys())}")
         print(f"DEBUG: process_row response_input_ids length: {len(output['response_input_ids'])}")
