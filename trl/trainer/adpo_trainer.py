@@ -1235,11 +1235,21 @@ class ADPOTrainer(Trainer):
             print(f"DEBUG: final concatenated image_grid_thw shape: {output['image_grid_thw'].shape if output['image_grid_thw'] is not None else 'None'}")
             print(f"DEBUG: final concatenated image_grid_thw values: {output['image_grid_thw']}")
 
-            # Check for potentially problematic values
+            # Check for potentially problematic values BEFORE clamping
             max_values = torch.max(output['image_grid_thw'], dim=0)[0]
-            print(f"DEBUG: max values in image_grid_thw: t={max_values[0]}, h={max_values[1]}, w={max_values[2]}")
+            print(f"DEBUG: max values in image_grid_thw BEFORE clamping: t={max_values[0]}, h={max_values[1]}, w={max_values[2]}")
+
+            # Apply clamping directly here as emergency fix
+            max_grid_h, max_grid_w = get_max_grid_size_from_processor(self.processing_class)
+            print(f"DEBUG: Applying emergency clamping with limits: h={max_grid_h}, w={max_grid_w}")
+            output['image_grid_thw'] = clamp_image_grid_thw(output['image_grid_thw'], max_grid_h, max_grid_w)
+
+            # Check values after clamping
+            max_values_after = torch.max(output['image_grid_thw'], dim=0)[0]
+            print(f"DEBUG: max values in image_grid_thw AFTER clamping: t={max_values_after[0]}, h={max_values_after[1]}, w={max_values_after[2]}")
+
             if max_values[1] > 50 or max_values[2] > 50:
-                print(f"WARNING: Large grid values detected! This might cause CUDA indexing errors.")
+                print(f"WARNING: Large grid values detected BEFORE clamping! This might cause CUDA indexing errors.")
         else:
             print(f"DEBUG: image_grid_thw not found in batch - chosen_image_grid_thw in batch: {'chosen_image_grid_thw' in batch}, rejected_image_grid_thw in batch: {'rejected_image_grid_thw' in batch}")
 
