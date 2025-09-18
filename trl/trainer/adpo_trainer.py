@@ -980,9 +980,17 @@ class ADPOTrainer(Trainer):
             print(f"DEBUG: Calculated rejected_image_grid_thw (fallback): {output['rejected_image_grid_thw']}")
 
         # Apply maximum grid size limits to prevent CUDA indexing errors
-        max_grid_h, max_grid_w = get_max_grid_size_from_processor(processor)
+        max_grid_h, max_grid_w = get_max_grid_size_from_processor(processing_class)
+        print(f"DEBUG: Max grid limits from processor: h={max_grid_h}, w={max_grid_w}")
+
+        print(f"DEBUG: Before clamping - chosen_image_grid_thw: {output['chosen_image_grid_thw']}")
+        print(f"DEBUG: Before clamping - rejected_image_grid_thw: {output['rejected_image_grid_thw']}")
+
         output["chosen_image_grid_thw"] = clamp_image_grid_thw(output["chosen_image_grid_thw"], max_grid_h, max_grid_w)
         output["rejected_image_grid_thw"] = clamp_image_grid_thw(output["rejected_image_grid_thw"], max_grid_h, max_grid_w)
+
+        print(f"DEBUG: After clamping - chosen_image_grid_thw: {output['chosen_image_grid_thw']}")
+        print(f"DEBUG: After clamping - rejected_image_grid_thw: {output['rejected_image_grid_thw']}")
 
         print(f"DEBUG: process_row returning keys: {list(output.keys())}")
         print(f"DEBUG: process_row response_input_ids length: {len(output['response_input_ids'])}")
