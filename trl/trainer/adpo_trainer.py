@@ -96,59 +96,59 @@ if is_mlflow_available():
 
 logger = logging.get_logger(__name__)
 
-def get_patch_size_from_processor(processor):
-    """Get patch size from processor configuration"""
-    # Try different ways to get patch_size from processor
-    if hasattr(processor, 'patch_size'):
-        return processor.patch_size
-    elif hasattr(processor, 'image_processor') and hasattr(processor.image_processor, 'patch_size'):
-        return processor.image_processor.patch_size
-    elif hasattr(processor, 'feature_extractor') and hasattr(processor.feature_extractor, 'patch_size'):
-        return processor.feature_extractor.patch_size
-    elif hasattr(processor, 'image_processor') and hasattr(processor.image_processor, 'size'):
-        # Some processors store patch info in size config
-        size_config = processor.image_processor.size
-        if isinstance(size_config, dict) and 'patch_size' in size_config:
-            return size_config['patch_size']
-    else:
-        # Fallback for Qwen2.5-VL and similar models
-        print("DEBUG: Could not find patch_size in processor, using default 14")
-        return 14
+# def get_patch_size_from_processor(processor):
+#     """Get patch size from processor configuration"""
+#     # Try different ways to get patch_size from processor
+#     if hasattr(processor, 'patch_size'):
+#         return processor.patch_size
+#     elif hasattr(processor, 'image_processor') and hasattr(processor.image_processor, 'patch_size'):
+#         return processor.image_processor.patch_size
+#     elif hasattr(processor, 'feature_extractor') and hasattr(processor.feature_extractor, 'patch_size'):
+#         return processor.feature_extractor.patch_size
+#     elif hasattr(processor, 'image_processor') and hasattr(processor.image_processor, 'size'):
+#         # Some processors store patch info in size config
+#         size_config = processor.image_processor.size
+#         if isinstance(size_config, dict) and 'patch_size' in size_config:
+#             return size_config['patch_size']
+#     else:
+#         # Fallback for Qwen2.5-VL and similar models
+#         print("DEBUG: Could not find patch_size in processor, using default 14")
+#         return 14
 
-def get_max_grid_size_from_processor(processor):
-    """Get maximum supported grid dimensions from processor/model configuration"""
-    # Try to find maximum grid dimensions from processor config
-    max_h, max_w = None, None
+# def get_max_grid_size_from_processor(processor):
+#     """Get maximum supported grid dimensions from processor/model configuration"""
+#     # Try to find maximum grid dimensions from processor config
+#     max_h, max_w = None, None
 
-    if hasattr(processor, 'image_processor'):
-        img_proc = processor.image_processor
+#     if hasattr(processor, 'image_processor'):
+#         img_proc = processor.image_processor
 
-        # Check for explicit max dimensions
-        for attr in ['max_height', 'max_width', 'max_size', 'size']:
-            if hasattr(img_proc, attr):
-                value = getattr(img_proc, attr)
-                if isinstance(value, dict):
-                    max_h = value.get('height') or value.get('max_height') or max_h
-                    max_w = value.get('width') or value.get('max_width') or max_w
-                elif isinstance(value, (int, tuple, list)):
-                    if isinstance(value, int):
-                        max_h = max_w = value
-                    else:
-                        max_h, max_w = (value[0], value[1]) if len(value) >= 2 else (value[0], value[0])
+#         # Check for explicit max dimensions
+#         for attr in ['max_height', 'max_width', 'max_size', 'size']:
+#             if hasattr(img_proc, attr):
+#                 value = getattr(img_proc, attr)
+#                 if isinstance(value, dict):
+#                     max_h = value.get('height') or value.get('max_height') or max_h
+#                     max_w = value.get('width') or value.get('max_width') or max_w
+#                 elif isinstance(value, (int, tuple, list)):
+#                     if isinstance(value, int):
+#                         max_h = max_w = value
+#                     else:
+#                         max_h, max_w = (value[0], value[1]) if len(value) >= 2 else (value[0], value[0])
 
-        # Convert pixel dimensions to grid dimensions (divide by patch size)
-        patch_size = get_patch_size_from_processor(processor)
-        if max_h and max_w:
-            max_grid_h = max_h // patch_size
-            max_grid_w = max_w // patch_size
-            print(f"DEBUG: Found max grid size from processor: {max_grid_h}x{max_grid_w} (pixel size {max_h}x{max_w}, patch_size {patch_size})")
-            return max_grid_h, max_grid_w
+#         # Convert pixel dimensions to grid dimensions (divide by patch size)
+#         patch_size = get_patch_size_from_processor(processor)
+#         if max_h and max_w:
+#             max_grid_h = max_h // patch_size
+#             max_grid_w = max_w // patch_size
+#             print(f"DEBUG: Found max grid size from processor: {max_grid_h}x{max_grid_w} (pixel size {max_h}x{max_w}, patch_size {patch_size})")
+#             return max_grid_h, max_grid_w
 
-    # Fallback to conservative defaults for Qwen2.5-VL
-    # Based on common transformer limits, most models support up to 64x64 or 32x32 patches
-    default_max = 64  # Conservative estimate
-    print(f"DEBUG: Using default max grid size: {default_max}x{default_max}")
-    return default_max, default_max
+#     # Fallback to conservative defaults for Qwen2.5-VL
+#     # Based on common transformer limits, most models support up to 64x64 or 32x32 patches
+#     default_max = 64  # Conservative estimate
+#     print(f"DEBUG: Using default max grid size: {default_max}x{default_max}")
+#     return default_max, default_max
 
 def clamp_image_grid_thw(image_grid_thw, max_grid_h, max_grid_w):
     """Clamp image_grid_thw values to maximum supported dimensions"""
@@ -889,8 +889,20 @@ class ADPOTrainer(Trainer):
 
         # Chat template is already applied before process_row is called (at line 715)
         # So chosen and rejected should already be text strings, not chat format
-        chosen_processed_features = processor(images=features["chosen_images"], text=features["chosen"], add_special_tokens=False)
-        rejected_processed_features = processor(images=features["rejected_images"], text=features["rejected"], add_special_tokens=False)
+        chosen_processed_features = processor(
+            images=features["chosen_images"], 
+            text=features["chosen"], 
+            padding=True,
+            return_tensors = 'pt',
+            add_special_tokens=False
+        )
+        rejected_processed_features = processor(
+            images=features["rejected_images"], 
+            text=features["rejected"], 
+            padding=True,
+            return_tensors = 'pt',
+            add_special_tokens=False
+        )
 
         print(f"DEBUG: chosen_processed_features keys: {list(chosen_processed_features.keys())}")
         print(f"DEBUG: rejected_processed_features keys: {list(rejected_processed_features.keys())}")
@@ -934,7 +946,7 @@ class ADPOTrainer(Trainer):
         }
 
         # Get patch size from processor configuration
-        patch_size = get_patch_size_from_processor(processor)
+        patch_size = processor.image_processor.patch_size
         print(f"DEBUG: Using patch_size: {patch_size}")
 
         # Handle pixel attention masks
@@ -951,49 +963,11 @@ class ADPOTrainer(Trainer):
 
         # Handle image_grid_thw - ALWAYS use processor values when available (they're correct!)
         if "image_grid_thw" in chosen_processed_features:
-            processor_grid_thw = chosen_processed_features["image_grid_thw"]
-            print(f"DEBUG: Processor provided chosen_image_grid_thw shape: {processor_grid_thw.shape if hasattr(processor_grid_thw, 'shape') else type(processor_grid_thw)}")
-            print(f"DEBUG: Processor provided chosen_image_grid_thw value: {processor_grid_thw}")
-
-            # Handle different formats: might be [[1,30,40]] or [1,30,40]
-            if hasattr(processor_grid_thw, 'shape') and len(processor_grid_thw.shape) > 1:
-                output["chosen_image_grid_thw"] = processor_grid_thw[0]  # Take first row if 2D
-            else:
-                output["chosen_image_grid_thw"] = processor_grid_thw
-            print(f"DEBUG: Final chosen_image_grid_thw: {output['chosen_image_grid_thw']}")
-        else:
-            output["chosen_image_grid_thw"] = calculate_image_grid_thw(chosen_pixel_values, patch_size)
-            print(f"DEBUG: Calculated chosen_image_grid_thw (fallback): {output['chosen_image_grid_thw']}")
+            output["chosen_image_grid_thw"] = chosen_processed_features["image_grid_thw"][0]
 
         if "image_grid_thw" in rejected_processed_features:
-            processor_grid_thw = rejected_processed_features["image_grid_thw"]
-            print(f"DEBUG: Processor provided rejected_image_grid_thw: {processor_grid_thw}")
+            output["rejected_image_grid_thw"] = rejected_processed_features["image_grid_thw"][0]
 
-            # Handle different formats: might be [[1,30,40]] or [1,30,40]
-            if hasattr(processor_grid_thw, 'shape') and len(processor_grid_thw.shape) > 1:
-                output["rejected_image_grid_thw"] = processor_grid_thw[0]  # Take first row if 2D
-            else:
-                output["rejected_image_grid_thw"] = processor_grid_thw
-            print(f"DEBUG: Final rejected_image_grid_thw: {output['rejected_image_grid_thw']}")
-        else:
-            output["rejected_image_grid_thw"] = calculate_image_grid_thw(rejected_pixel_values, patch_size)
-            print(f"DEBUG: Calculated rejected_image_grid_thw (fallback): {output['rejected_image_grid_thw']}")
-
-        # Apply maximum grid size limits to prevent CUDA indexing errors
-        max_grid_h, max_grid_w = get_max_grid_size_from_processor(processing_class)
-        print(f"DEBUG: Max grid limits from processor: h={max_grid_h}, w={max_grid_w}")
-
-        print(f"DEBUG: Before clamping - chosen_image_grid_thw: {output['chosen_image_grid_thw']}")
-        print(f"DEBUG: Before clamping - rejected_image_grid_thw: {output['rejected_image_grid_thw']}")
-
-        output["chosen_image_grid_thw"] = clamp_image_grid_thw(output["chosen_image_grid_thw"], max_grid_h, max_grid_w)
-        output["rejected_image_grid_thw"] = clamp_image_grid_thw(output["rejected_image_grid_thw"], max_grid_h, max_grid_w)
-
-        print(f"DEBUG: After clamping - chosen_image_grid_thw: {output['chosen_image_grid_thw']}")
-        print(f"DEBUG: After clamping - rejected_image_grid_thw: {output['rejected_image_grid_thw']}")
-
-        print(f"DEBUG: process_row returning keys: {list(output.keys())}")
-        print(f"DEBUG: process_row response_input_ids length: {len(output['response_input_ids'])}")
         return output
 
     def _set_signature_columns_if_needed(self):
@@ -1180,6 +1154,7 @@ class ADPOTrainer(Trainer):
                 - `"pixel_values"` (optional): Concatenated pixel values if `"prompt_pixel_values"` are present.
                 - `"pixel_attention_mask"` (optional): Concatenated pixel attention masks if
                   `"prompt_pixel_attention_mask"` are present.
+                - `"image_grid_thw"`
 
         Notes:
             The completion input IDs and attention masks are padded to the maximum completion length of the chosen or
@@ -1228,30 +1203,10 @@ class ADPOTrainer(Trainer):
             output["image_sizes"] = torch.cat([batch["chosen_image_sizes"], batch["rejected_image_sizes"]], dim=0)
 
         if "chosen_image_grid_thw" in batch and "rejected_image_grid_thw" in batch:
-            print(f"DEBUG: concatenating image_grid_thw - chosen shape: {batch['chosen_image_grid_thw'].shape if batch['chosen_image_grid_thw'] is not None else 'None'}, rejected shape: {batch['rejected_image_grid_thw'].shape if batch['rejected_image_grid_thw'] is not None else 'None'}")
-            print(f"DEBUG: chosen_image_grid_thw values: {batch['chosen_image_grid_thw']}")
-            print(f"DEBUG: rejected_image_grid_thw values: {batch['rejected_image_grid_thw']}")
+            print(f"DEBUG: concatenating image_grid_thw - chosen: {batch['chosen_image_grid_thw']}, rejected shape: {batch['rejected_image_grid_thw']}")
             output["image_grid_thw"] = torch.cat([batch["chosen_image_grid_thw"], batch["rejected_image_grid_thw"]], dim=0)
             print(f"DEBUG: final concatenated image_grid_thw shape: {output['image_grid_thw'].shape if output['image_grid_thw'] is not None else 'None'}")
             print(f"DEBUG: final concatenated image_grid_thw values: {output['image_grid_thw']}")
-
-            # Check for potentially problematic values BEFORE clamping
-            max_values = torch.max(output['image_grid_thw'], dim=0)[0]
-            print(f"DEBUG: max values in image_grid_thw BEFORE clamping: t={max_values[0]}, h={max_values[1]}, w={max_values[2]}")
-
-            # Apply clamping directly here as emergency fix - use very conservative limits
-            max_grid_h, max_grid_w = 16, 16  # Very conservative limits to prevent CUDA indexing errors
-            print(f"DEBUG: Applying emergency clamping with conservative limits: h={max_grid_h}, w={max_grid_w}")
-            output['image_grid_thw'] = clamp_image_grid_thw(output['image_grid_thw'], max_grid_h, max_grid_w)
-
-            # Check values after clamping
-            max_values_after = torch.max(output['image_grid_thw'], dim=0)[0]
-            print(f"DEBUG: max values in image_grid_thw AFTER clamping: t={max_values_after[0]}, h={max_values_after[1]}, w={max_values_after[2]}")
-
-            if max_values[1] > 50 or max_values[2] > 50:
-                print(f"WARNING: Large grid values detected BEFORE clamping! This might cause CUDA indexing errors.")
-        else:
-            print(f"DEBUG: image_grid_thw not found in batch - chosen_image_grid_thw in batch: {'chosen_image_grid_thw' in batch}, rejected_image_grid_thw in batch: {'rejected_image_grid_thw' in batch}")
 
         # Concatenate the chosen and rejected completions
         # max_completion_length = max(batch["chosen_input_ids"].shape[1], batch["rejected_input_ids"].shape[1])
