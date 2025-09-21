@@ -1192,7 +1192,13 @@ class ADPOTrainer(Trainer):
             ),
         )
         if "chosen_pixel_values" in batch and "rejected_pixel_values" in batch:
+            print(f"DEBUG: concatenating pixel_values")
+            print(f"  chosen_pixel_values shape: {batch['chosen_pixel_values'].shape}")
+            print(f"  rejected_pixel_values shape: {batch['rejected_pixel_values'].shape}")
             output["pixel_values"] = torch.cat([batch["chosen_pixel_values"], batch["rejected_pixel_values"]], dim=0)
+            print(f"  final concatenated pixel_values shape: {output['pixel_values'].shape}")
+            print(f"  final concatenated pixel_values size: {output['pixel_values'].numel()}")
+            print(f"  final concatenated pixel_values dtype: {output['pixel_values'].dtype}")
 
         if "chosen_pixel_attention_mask" in batch and "rejected_pixel_attention_mask" in batch:
             output["pixel_attention_mask"] = torch.cat(
@@ -1810,6 +1816,30 @@ class ADPOTrainer(Trainer):
                 print(f"  image_grid_thw max values: t={max_vals[0]}, h={max_vals[1]}, w={max_vals[2]}")
             else:
                 print(f"  image_grid_thw NOT in model_kwargs")
+            
+            # CRITICAL DEBUG: Check pixel_values shape and content
+            if "pixel_values" in model_kwargs:
+                pixel_vals = model_kwargs['pixel_values']
+                print(f"  pixel_values shape: {pixel_vals.shape}")
+                print(f"  pixel_values size (total elements): {pixel_vals.numel()}")
+                print(f"  pixel_values dtype: {pixel_vals.dtype}")
+                print(f"  pixel_values min/max: [{pixel_vals.min():.3f}, {pixel_vals.max():.3f}]")
+                print(f"  pixel_values expected size check:")
+                if "image_grid_thw" in model_kwargs:
+                    grid_thw = model_kwargs['image_grid_thw']
+                    expected_patches = []
+                    for i in range(grid_thw.shape[0]):
+                        t, h, w = grid_thw[i].tolist()
+                        patches = t * h * w
+                        expected_patches.append(patches)
+                        print(f"    Image {i}: {t}×{h}×{w} = {patches} patches")
+                    total_expected_patches = sum(expected_patches)
+                    print(f"    Total expected patches: {total_expected_patches}")
+                    # Each patch is typically ~1176 values (3×14×14 = 588 per patch × 2 for some models)
+                    patch_dim = pixel_vals.numel() // sum(expected_patches) if sum(expected_patches) > 0 else 0
+                    print(f"    Calculated patch dimension: {patch_dim} values per patch")
+            else:
+                print(f"  pixel_values NOT in model_kwargs")
 
             outputs = model(input_ids, **model_kwargs)
             logits = outputs.logits
