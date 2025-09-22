@@ -1009,16 +1009,26 @@ class ADPOTrainer(Trainer):
         num_chosen_images = len(features["chosen_images"])
         num_rejected_images = len(features["rejected_images"])
 
-        # Split pixel_values - first N patches for chosen, rest for rejected
+        # Split pixel_values using image_grid_thw to determine correct boundaries
         total_pixel_values = combined_processed_features["pixel_values"]
 
-        # Calculate patches per image (assuming equal patch count per image)
-        total_patches = total_pixel_values.shape[0]
-        patches_per_image = total_patches // (num_chosen_images + num_rejected_images)
-
-        chosen_end_idx = num_chosen_images * patches_per_image
-        chosen_pixel_values = total_pixel_values[:chosen_end_idx]
-        rejected_pixel_values = total_pixel_values[chosen_end_idx:]
+        if "image_grid_thw" in combined_processed_features:
+            # Use image_grid_thw to calculate exact patch counts for each image
+            grid_thw = combined_processed_features["image_grid_thw"]
+            chosen_patches = 0
+            for i in range(num_chosen_images):
+                t, h, w = grid_thw[i].tolist()
+                chosen_patches += t * h * w
+            chosen_pixel_values = total_pixel_values[:chosen_patches]
+            rejected_pixel_values = total_pixel_values[chosen_patches:]
+            chosen_end_idx = chosen_patches
+        else:
+            # Fallback: assume equal patches per image (original logic)
+            total_patches = total_pixel_values.shape[0]
+            patches_per_image = total_patches // (num_chosen_images + num_rejected_images)
+            chosen_end_idx = num_chosen_images * patches_per_image
+            chosen_pixel_values = total_pixel_values[:chosen_end_idx]
+            rejected_pixel_values = total_pixel_values[chosen_end_idx:]
 
         print(f"DEBUG: Split pixel values - chosen: {chosen_pixel_values.shape}, rejected: {rejected_pixel_values.shape}")
 
@@ -1067,8 +1077,14 @@ class ADPOTrainer(Trainer):
         if "image_grid_thw" in combined_processed_features:
             # Split image_grid_thw by number of images
             grid_thw = combined_processed_features["image_grid_thw"]
-            output["chosen_image_grid_thw"] = grid_thw[0]
-            output["rejected_image_grid_thw"] = grid_thw[1]
+            if num_chosen_images == 1 and num_rejected_images == 1:
+                # For single images, take individual grid tensors
+                output["chosen_image_grid_thw"] = grid_thw[0]  # [3] shape
+                output["rejected_image_grid_thw"] = grid_thw[1]  # [3] shape
+            else:
+                # For multiple images, take slices
+                output["chosen_image_grid_thw"] = grid_thw[:num_chosen_images]
+                output["rejected_image_grid_thw"] = grid_thw[num_chosen_images:]
 
         print(f"DEBUG: Final output keys: {list(output.keys())}")
         return output
@@ -1333,10 +1349,20 @@ class ADPOTrainer(Trainer):
         # )
 
         # For the response, the input_ids are the same for both the chosen and rejected prompts
-        output["completion_input_ids"] = torch.cat([batch["response_input_ids"], batch["response_input_ids"]], dim=0)
-        output["completion_attention_mask"] = torch.cat(
-            [batch["response_attention_mask"], batch["response_attention_mask"]], dim=0
-        )
+        if "response_input_ids" in batch:
+            output["completion_input_ids"] = torch.cat([batch["response_input_ids"], batch["response_input_ids"]], dim=0)
+
+            # Generate response attention mask if not present
+            if "response_attention_mask" in batch:
+                output["completion_attention_mask"] = torch.cat(
+                    [batch["response_attention_mask"], batch["response_attention_mask"]], dim=0
+                )
+            else:
+                # Create attention mask from response_input_ids (1 where token != pad_token)
+                response_attention_mask = (batch["response_input_ids"] != padding_value).long()
+                output["completion_attention_mask"] = torch.cat(
+                    [response_attention_mask, response_attention_mask], dim=0
+                )
 
         return output
 
