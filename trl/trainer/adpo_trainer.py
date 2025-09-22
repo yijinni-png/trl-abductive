@@ -907,8 +907,8 @@ class ADPOTrainer(Trainer):
         print(f"DEBUG: chosen_processed_features keys: {list(chosen_processed_features.keys())}")
         print(f"DEBUG: rejected_processed_features keys: {list(rejected_processed_features.keys())}")
 
-        chosen_input_ids = chosen_processed_features["input_ids"][0]
-        rejected_input_ids = rejected_processed_features["input_ids"][0]
+        chosen_input_ids = chosen_processed_features["input_ids"][0].tolist()
+        rejected_input_ids = rejected_processed_features["input_ids"][0].tolist()
         chosen_pixel_values = chosen_processed_features["pixel_values"]
         rejected_pixel_values = rejected_processed_features["pixel_values"]
         
