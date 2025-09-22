@@ -305,8 +305,21 @@ class DataCollatorForPreference(DataCollatorMixin):
             output["chosen_image_sizes"] = torch.tensor([example["chosen_image_sizes"] for example in examples])
             output["rejected_image_sizes"] = torch.tensor([example["rejected_image_sizes"] for example in examples])
         if "chosen_image_grid_thw" in examples[0] and "rejected_image_grid_thw" in examples[0]:
-            output["chosen_image_grid_thw"] = torch.stack([example["chosen_image_grid_thw"] for example in examples])
-            output["rejected_image_grid_thw"] = torch.stack([example["rejected_image_grid_thw"] for example in examples])
+            # Handle both tensors and lists
+            chosen_grids = []
+            rejected_grids = []
+            for example in examples:
+                chosen_grid = example["chosen_image_grid_thw"]
+                rejected_grid = example["rejected_image_grid_thw"]
+                # Convert to tensor if it's a list
+                if not isinstance(chosen_grid, torch.Tensor):
+                    chosen_grid = torch.tensor(chosen_grid)
+                if not isinstance(rejected_grid, torch.Tensor):
+                    rejected_grid = torch.tensor(rejected_grid)
+                chosen_grids.append(chosen_grid)
+                rejected_grids.append(rejected_grid)
+            output["chosen_image_grid_thw"] = torch.stack(chosen_grids)
+            output["rejected_image_grid_thw"] = torch.stack(rejected_grids)
         if "ref_chosen_logps" in examples[0] and "ref_rejected_logps" in examples[0]:
             output["ref_chosen_logps"] = ref_chosen_logps
             output["ref_rejected_logps"] = ref_rejected_logps
