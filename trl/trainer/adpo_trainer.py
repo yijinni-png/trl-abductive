@@ -963,22 +963,9 @@ class ADPOTrainer(Trainer):
         import sys
         import os
 
-        # Debug output to confirm method entry
-        error_msg = "*** NEW PROCESS_ROW ENTRY: Starting execution"
-        print(error_msg, flush=True)
-        sys.stderr.write(f"{error_msg}\n")
-        sys.stderr.flush()
-
-        debug_msg = f"*** NEW PROCESS_ROW CALLED! Features keys: {list(features.keys())}"
-        print(debug_msg, flush=True)
-        sys.stderr.write(f"{debug_msg}\n")
-        sys.stderr.flush()
+        print(f"DEBUG: ADPO process_row - Processing {len(features['chosen_images'])} chosen + {len(features['rejected_images'])} rejected images")
 
         processor, tokenizer = processing_class, processing_class.tokenizer
-
-        # FIXED APPROACH: Use official individual processing to ensure proper token generation
-        print(f"DEBUG: Processing chosen and rejected individually with correct token generation")
-        print(f"DEBUG: Chosen images: {len(features['chosen_images'])}, Rejected images: {len(features['rejected_images'])}")
 
         # Process chosen and rejected individually using official approach
         chosen_processed = processor(
@@ -997,48 +984,21 @@ class ADPOTrainer(Trainer):
             add_special_tokens=False
         )
 
-        print(f"DEBUG: Individual processing results:")
-        print(f"  chosen input_ids shape: {chosen_processed['input_ids'].shape}")
-        print(f"  rejected input_ids shape: {rejected_processed['input_ids'].shape}")
-        print(f"  chosen pixel_values shape: {chosen_processed['pixel_values'].shape}")
-        print(f"  rejected pixel_values shape: {rejected_processed['pixel_values'].shape}")
-        if "image_grid_thw" in chosen_processed:
-            print(f"  chosen image_grid_thw shape: {chosen_processed['image_grid_thw'].shape}")
-            print(f"  chosen image_grid_thw values: {chosen_processed['image_grid_thw']}")
-        if "image_grid_thw" in rejected_processed:
-            print(f"  rejected image_grid_thw shape: {rejected_processed['image_grid_thw'].shape}")
-            print(f"  rejected image_grid_thw values: {rejected_processed['image_grid_thw']}")
-
-        # DEBUG: Analyze what the processor actually generated vs what we're throwing away
-        print(f"DEBUG: CRITICAL ANALYSIS - Vision Token Generation:")
-        chosen_text_from_processor = tokenizer.decode(chosen_processed["input_ids"][0], skip_special_tokens=False)
-        rejected_text_from_processor = tokenizer.decode(rejected_processed["input_ids"][0], skip_special_tokens=False)
-
-        print(f"DEBUG: Original chosen text preview: {features['chosen'][:200]}...")
-        print(f"DEBUG: Processor-generated chosen text preview: {chosen_text_from_processor[:200]}...")
-
-        # Count vision tokens in each
+        # Verify the fix: Check vision token counts
         import re
         original_chosen_pads = len(re.findall(r'<\|image_pad\|>', features['chosen']))
+        chosen_text_from_processor = tokenizer.decode(chosen_processed["input_ids"][0], skip_special_tokens=False)
         processor_chosen_pads = len(re.findall(r'<\|image_pad\|>', chosen_text_from_processor))
+        print(f"DEBUG: Vision token fix - Original: {original_chosen_pads}, Processor: {processor_chosen_pads} ✓")
 
-        print(f"DEBUG: Original chosen text <|image_pad|> tokens: {original_chosen_pads}")
-        print(f"DEBUG: Processor-generated chosen <|image_pad|> tokens: {processor_chosen_pads}")
-        print(f"DEBUG: *** ISSUE IDENTIFIED: We process with processor (gets {processor_chosen_pads} tokens) but then use original text (only {original_chosen_pads} tokens)! ***")
-
-        # Extract input_ids and pixel_values from individual processing
-        # CRITICAL FIX: Use the processor-generated input_ids that have proper vision tokens!
+        # Extract results from processor (using proper vision tokens)
         chosen_input_ids = chosen_processed["input_ids"][0].tolist()
         rejected_input_ids = rejected_processed["input_ids"][0].tolist()
         chosen_pixel_values = chosen_processed["pixel_values"]
         rejected_pixel_values = rejected_processed["pixel_values"]
 
-        print(f"DEBUG: Using processor-generated input_ids - chosen: {len(chosen_input_ids)}, rejected: {len(rejected_input_ids)}")
-        print(f"DEBUG: Extracted - chosen pixel_values: {chosen_pixel_values.shape}, rejected pixel_values: {rejected_pixel_values.shape}")
-
-         # Process response (same as before)
+        # Process response
         response_input_ids = tokenizer(features["response"], add_special_tokens=False)["input_ids"]
-        print(f"DEBUG: response_input_ids created, length: {len(response_input_ids)}, first tokens: {response_input_ids[:10]}")
 
         # Add special tokens (typically for encoder-decoder models)
         if add_special_tokens:
@@ -1081,7 +1041,6 @@ class ADPOTrainer(Trainer):
         if "image_grid_thw" in rejected_processed:
             output["rejected_image_grid_thw"] = rejected_processed["image_grid_thw"][0]  # Remove batch dimension
 
-        print(f"DEBUG: Final output keys: {list(output.keys())}")
         return output
 
     def _set_signature_columns_if_needed(self):
