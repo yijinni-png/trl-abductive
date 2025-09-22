@@ -305,8 +305,8 @@ class DataCollatorForPreference(DataCollatorMixin):
             output["chosen_image_sizes"] = torch.tensor([example["chosen_image_sizes"] for example in examples])
             output["rejected_image_sizes"] = torch.tensor([example["rejected_image_sizes"] for example in examples])
         if "chosen_image_grid_thw" in examples[0] and "rejected_image_grid_thw" in examples[0]:
-            output["chosen_image_grid_thw"] = torch.tensor([example["chosen_image_grid_thw"] for example in examples])
-            output["rejected_image_grid_thw"] = torch.tensor([example["rejected_image_grid_thw"] for example in examples])
+            output["chosen_image_grid_thw"] = torch.stack([example["chosen_image_grid_thw"] for example in examples])
+            output["rejected_image_grid_thw"] = torch.stack([example["rejected_image_grid_thw"] for example in examples])
         if "ref_chosen_logps" in examples[0] and "ref_rejected_logps" in examples[0]:
             output["ref_chosen_logps"] = ref_chosen_logps
             output["ref_rejected_logps"] = ref_rejected_logps
