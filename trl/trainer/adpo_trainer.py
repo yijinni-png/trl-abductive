@@ -272,8 +272,8 @@ class DataCollatorForPreference(DataCollatorMixin):
             response_input_ids = []
             response_attention_mask = []
         if "chosen_pixel_values" in examples[0] and "rejected_pixel_values" in examples[0]:
-            chosen_pixel_values = [torch.tensor(example["chosen_pixel_values"]) for example in examples]
-            rejected_pixel_values = [torch.tensor(example["rejected_pixel_values"]) for example in examples]
+            chosen_pixel_values = [torch.tensor(example["chosen_pixel_values"], dtype=torch.float32) for example in examples]
+            rejected_pixel_values = [torch.tensor(example["rejected_pixel_values"], dtype=torch.float32) for example in examples]
         if "chosen_pixel_attention_mask" in examples[0] and "rejected_pixel_attention_mask" in examples[0]:
             chosen_pixel_attention_mask = [torch.tensor(example["chosen_pixel_attention_mask"]) for example in examples]
             rejected_pixel_attention_mask = [torch.tensor(example["rejected_pixel_attention_mask"]) for example in examples]
@@ -909,18 +909,18 @@ class ADPOTrainer(Trainer):
 
         chosen_input_ids = chosen_processed_features["input_ids"][0].tolist()
         rejected_input_ids = rejected_processed_features["input_ids"][0].tolist()
-        chosen_pixel_values = chosen_processed_features["pixel_values"]
-        rejected_pixel_values = rejected_processed_features["pixel_values"]
+        chosen_pixel_values = chosen_processed_features["pixel_values"].tolist()
+        rejected_pixel_values = rejected_processed_features["pixel_values"].tolist()
         
         # Debug: Check raw pixel_values shapes from processor
-        print(f"DEBUG: RAW chosen_pixel_values shape from processor: {chosen_pixel_values.shape}")
-        print(f"DEBUG: RAW rejected_pixel_values shape from processor: {rejected_pixel_values.shape}")
+        print(f"DEBUG: RAW chosen_pixel_values shape from processor: {len(chosen_pixel_values)} x {len(chosen_pixel_values[0]) if chosen_pixel_values else 0}")
+        print(f"DEBUG: RAW rejected_pixel_values shape from processor: {len(rejected_pixel_values)} x {len(rejected_pixel_values[0]) if rejected_pixel_values else 0}")
         if "image_grid_thw" in chosen_processed_features:
             print(f"DEBUG: RAW chosen image_grid_thw: {chosen_processed_features['image_grid_thw']}")
         if "image_grid_thw" in rejected_processed_features:
             print(f"DEBUG: RAW rejected image_grid_thw: {rejected_processed_features['image_grid_thw']}")
-        print(f"DEBUG: chosen_pixel_values total elements: {chosen_pixel_values.numel()}")
-        print(f"DEBUG: rejected_pixel_values total elements: {rejected_pixel_values.numel()}")
+        print(f"DEBUG: chosen_pixel_values total elements: {len(chosen_pixel_values) * len(chosen_pixel_values[0]) if chosen_pixel_values else 0}")
+        print(f"DEBUG: rejected_pixel_values total elements: {len(rejected_pixel_values) * len(rejected_pixel_values[0]) if rejected_pixel_values else 0}")
         # prompt_input_ids = processed_features["input_ids"][0]
         # pixel_values = processed_features["pixel_values"][0]
         response_input_ids = tokenizer(features["response"], add_special_tokens=False)["input_ids"]
