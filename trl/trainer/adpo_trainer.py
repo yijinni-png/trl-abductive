@@ -878,12 +878,38 @@ class ADPOTrainer(Trainer):
         """
         Same as `tokenize_row` but for vision models. Please refer to `tokenize_row` for more information.
         """
-        print(f"*** PROCESS_ROW CALLED! Features keys: {list(features.keys())}")
-        print(f"DEBUG: process_row called with features keys: {list(features.keys())}")
+        import sys
+        import os
+
+        # Use multiple methods to ensure debug output is visible
+        debug_msg = f"*** PROCESS_ROW CALLED! Features keys: {list(features.keys())}"
+        print(debug_msg, flush=True)
+        sys.stderr.write(f"{debug_msg}\n")
+        sys.stderr.flush()
+
+        # Write to a debug file as backup
+        try:
+            with open("/tmp/adpo_debug.log", "a") as f:
+                f.write(f"{debug_msg}\n")
+                f.flush()
+        except:
+            pass
+
+        debug_msg2 = f"DEBUG: process_row called with features keys: {list(features.keys())}"
+        print(debug_msg2, flush=True)
+        sys.stderr.write(f"{debug_msg2}\n")
+        sys.stderr.flush()
+
         if "response" in features:
-            print(f"DEBUG: response field exists, content: {features['response'][:100] if isinstance(features['response'], str) else features['response']}")
+            response_debug = f"DEBUG: response field exists, content: {features['response'][:100] if isinstance(features['response'], str) else features['response']}"
+            print(response_debug, flush=True)
+            sys.stderr.write(f"{response_debug}\n")
+            sys.stderr.flush()
         else:
-            print(f"DEBUG: WARNING - 'response' field NOT found in features!")
+            warning_debug = f"DEBUG: WARNING - 'response' field NOT found in features!"
+            print(warning_debug, flush=True)
+            sys.stderr.write(f"{warning_debug}\n")
+            sys.stderr.flush()
         
         processor, tokenizer = processing_class, processing_class.tokenizer  # the processing class is a processor
 
