@@ -1032,7 +1032,7 @@ class ADPOTrainer(Trainer):
 
         print(f"DEBUG: Split pixel values - chosen: {chosen_pixel_values.shape}, rejected: {rejected_pixel_values.shape}")
 
-        # Process response (same as before)
+         # Process response (same as before)
         response_input_ids = tokenizer(features["response"], add_special_tokens=False)["input_ids"]
         print(f"DEBUG: response_input_ids created, length: {len(response_input_ids)}, first tokens: {response_input_ids[:10]}")
 
