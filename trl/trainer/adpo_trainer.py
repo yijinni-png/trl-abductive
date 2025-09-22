@@ -810,6 +810,7 @@ class ADPOTrainer(Trainer):
             except:
                 pass
 
+            print("*** BEFORE dataset.map call", flush=True)
             dataset = dataset.map(
                 self.tokenize_row if not self.is_vision_model else self.process_row,
                 remove_columns=["chosen", "rejected"],
@@ -915,6 +916,12 @@ class ADPOTrainer(Trainer):
         """
         import sys
         import os
+
+        # Debug output to confirm method entry
+        error_msg = "*** PROCESS_ROW ENTRY: Starting execution"
+        print(error_msg, flush=True)
+        sys.stderr.write(f"{error_msg}\n")
+        sys.stderr.flush()
 
         # Use multiple methods to ensure debug output is visible
         debug_msg = f"*** PROCESS_ROW CALLED! Features keys: {list(features.keys())}"
