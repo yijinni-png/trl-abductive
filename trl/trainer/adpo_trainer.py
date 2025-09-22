@@ -246,8 +246,8 @@ class DataCollatorForPreference(DataCollatorMixin):
     return_tensors: str = "pt"
 
     def torch_call(self, examples: list[Union[list[int], Any, dict[str, Any]]]) -> dict[str, Any]:
-        print(f"DEBUG: torch_call called with {len(examples)} examples")
-        print(f"DEBUG: First example keys: {list(examples[0].keys()) if examples else 'No examples'}")
+        # print(f"DEBUG: torch_call called with {len(examples)} examples")
+        # print(f"DEBUG: First example keys: {list(examples[0].keys()) if examples else 'No examples'}")
         
         # Convert to tensor
         # prompt_input_ids = [torch.tensor(example["prompt_input_ids"]) for example in examples]
@@ -261,10 +261,10 @@ class DataCollatorForPreference(DataCollatorMixin):
         # rejected_input_ids = [torch.tensor(example["rejected_input_ids"]) for example in examples]
         # rejected_attention_mask = [torch.ones_like(input_ids) for input_ids in rejected_input_ids]
         if "response_input_ids" in examples[0]:
-            print(f"DEBUG: response_input_ids found in examples[0]")
+            # print(f"DEBUG: response_input_ids found in examples[0]")
             response_input_ids = [torch.tensor(example["response_input_ids"]) for example in examples]
             response_attention_mask = [torch.ones_like(input_ids) for input_ids in response_input_ids]
-            print(f"DEBUG: Created {len(response_input_ids)} response_input_ids tensors")
+            # print(f"DEBUG: Created {len(response_input_ids)} response_input_ids tensors")
         else:
             print(f"DEBUG: WARNING - response_input_ids NOT found in examples[0]!")
             # Fallback: use empty list if response_input_ids not available
@@ -909,8 +909,8 @@ class ADPOTrainer(Trainer):
 
         chosen_input_ids = chosen_processed_features["input_ids"][0]
         rejected_input_ids = rejected_processed_features["input_ids"][0]
-        chosen_pixel_values = chosen_processed_features["pixel_values"][0]
-        rejected_pixel_values = rejected_processed_features["pixel_values"][0]
+        chosen_pixel_values = chosen_processed_features["pixel_values"]
+        rejected_pixel_values = rejected_processed_features["pixel_values"]
         
         # Debug: Check raw pixel_values shapes from processor
         print(f"DEBUG: RAW chosen_pixel_values shape from processor: {chosen_pixel_values.shape}")
