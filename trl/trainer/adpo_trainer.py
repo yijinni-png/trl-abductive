@@ -457,7 +457,26 @@ class ADPOTrainer(Trainer):
             )
 
         self.is_encoder_decoder = model.config.is_encoder_decoder
-        self.is_vision_model = model.config.model_type in MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES.keys()
+
+        # Debug vision model detection
+        import sys
+        model_type = model.config.model_type
+        available_types = list(MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES.keys())
+        is_vision = model_type in available_types
+
+        debug_vision_msg = f"*** VISION MODEL DETECTION: model_type='{model_type}', available_types={available_types}, is_vision_model={is_vision}"
+        print(debug_vision_msg, flush=True)
+        sys.stderr.write(f"{debug_vision_msg}\n")
+        sys.stderr.flush()
+
+        try:
+            with open("/tmp/adpo_debug.log", "a") as f:
+                f.write(f"{debug_vision_msg}\n")
+                f.flush()
+        except:
+            pass
+
+        self.is_vision_model = is_vision
         self.is_peft_model = is_peft_available() and isinstance(model, PeftModel)
         self.model_adapter_name = args.model_adapter_name
         self.ref_adapter_name = args.ref_adapter_name
@@ -773,8 +792,24 @@ class ADPOTrainer(Trainer):
                 map_kwargs["desc"] = f"Tokenizing {dataset_name} dataset"
 
             print(f"DEBUG: is_vision_model = {self.is_vision_model}")
-            # print(f"DEBUG: Using {'process_row' if self.is_vision_model else 'tokenize_row'}")
-            
+
+            # Enhanced debug output for method selection
+            import sys
+            method_name = 'process_row' if self.is_vision_model else 'tokenize_row'
+            selected_method = self.process_row if self.is_vision_model else self.tokenize_row
+
+            method_debug_msg = f"*** METHOD SELECTION: is_vision_model={self.is_vision_model}, using_method={method_name}, method_object={selected_method}"
+            print(method_debug_msg, flush=True)
+            sys.stderr.write(f"{method_debug_msg}\n")
+            sys.stderr.flush()
+
+            try:
+                with open("/tmp/adpo_debug.log", "a") as f:
+                    f.write(f"{method_debug_msg}\n")
+                    f.flush()
+            except:
+                pass
+
             dataset = dataset.map(
                 self.tokenize_row if not self.is_vision_model else self.process_row,
                 remove_columns=["chosen", "rejected"],
