@@ -975,20 +975,20 @@ class ADPOTrainer(Trainer):
         print(f"DEBUG: chosen_processed_features keys: {list(chosen_processed_features.keys())}")
         print(f"DEBUG: rejected_processed_features keys: {list(rejected_processed_features.keys())}")
 
-        chosen_input_ids = chosen_processed_features["input_ids"][0].tolist()
-        rejected_input_ids = rejected_processed_features["input_ids"][0].tolist()
-        chosen_pixel_values = chosen_processed_features["pixel_values"].tolist()
-        rejected_pixel_values = rejected_processed_features["pixel_values"].tolist()
+        chosen_input_ids = chosen_processed_features["input_ids"][0]
+        rejected_input_ids = rejected_processed_features["input_ids"][0]
+        chosen_pixel_values = chosen_processed_features["pixel_values"]
+        rejected_pixel_values = rejected_processed_features["pixel_values"]
         
         # Debug: Check raw pixel_values shapes from processor
-        print(f"DEBUG: RAW chosen_pixel_values shape from processor: {len(chosen_pixel_values)} x {len(chosen_pixel_values[0]) if chosen_pixel_values else 0}")
-        print(f"DEBUG: RAW rejected_pixel_values shape from processor: {len(rejected_pixel_values)} x {len(rejected_pixel_values[0]) if rejected_pixel_values else 0}")
+        print(f"DEBUG: chosen_processed_features pixel_values actual shape: {chosen_processed_features['pixel_values'].shape}")
+        print(f"DEBUG: rejected_processed_features pixel_values actual shape: {rejected_processed_features['pixel_values'].shape}")
         if "image_grid_thw" in chosen_processed_features:
             print(f"DEBUG: RAW chosen image_grid_thw: {chosen_processed_features['image_grid_thw']}")
         if "image_grid_thw" in rejected_processed_features:
             print(f"DEBUG: RAW rejected image_grid_thw: {rejected_processed_features['image_grid_thw']}")
-        print(f"DEBUG: chosen_pixel_values total elements: {len(chosen_pixel_values) * len(chosen_pixel_values[0]) if chosen_pixel_values else 0}")
-        print(f"DEBUG: rejected_pixel_values total elements: {len(rejected_pixel_values) * len(rejected_pixel_values[0]) if rejected_pixel_values else 0}")
+        print(f"DEBUG: chosen_pixel_values total elements:  {chosen_processed_features['pixel_values'].numel()}")
+        print(f"DEBUG: rejected_pixel_values total elements:  {rejected_processed_features['pixel_values'].numel()}")
         # prompt_input_ids = processed_features["input_ids"][0]
         # pixel_values = processed_features["pixel_values"][0]
         response_input_ids = tokenizer(features["response"], add_special_tokens=False)["input_ids"]
