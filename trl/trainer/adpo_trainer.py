@@ -976,19 +976,22 @@ class ADPOTrainer(Trainer):
 
         processor, tokenizer = processing_class, processing_class.tokenizer
 
-        # NEW APPROACH: Combined processing to ensure token/feature alignment
-        print(f"DEBUG: Combining images and texts for unified processing")
-        all_images = features["chosen_images"] + features["rejected_images"]
-        all_texts = [features["chosen"], features["rejected"]]
-
+        # FIXED APPROACH: Use official individual processing to ensure proper token generation
+        print(f"DEBUG: Processing chosen and rejected individually with correct token generation")
         print(f"DEBUG: Chosen images: {len(features['chosen_images'])}, Rejected images: {len(features['rejected_images'])}")
-        print(f"DEBUG: Total images: {len(all_images)}, Total texts: {len(all_texts)}")
-        print(f"DEBUG: Texts are identical: {features['chosen'] == features['rejected']}")
 
-        # Process all images and texts together - this ensures proper token/feature alignment
-        combined_processed_features = processor(
-            images=all_images,
-            text=all_texts,
+        # Process chosen and rejected individually using official approach
+        chosen_processed = processor(
+            text=[features["chosen"]],
+            images=features["chosen_images"],
+            padding=True,
+            return_tensors='pt',
+            add_special_tokens=False
+        )
+
+        rejected_processed = processor(
+            text=[features["rejected"]],
+            images=features["rejected_images"],
             padding=True,
             return_tensors='pt',
             add_special_tokens=False
