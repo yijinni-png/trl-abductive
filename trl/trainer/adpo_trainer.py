@@ -1009,13 +1009,31 @@ class ADPOTrainer(Trainer):
             print(f"  rejected image_grid_thw shape: {rejected_processed['image_grid_thw'].shape}")
             print(f"  rejected image_grid_thw values: {rejected_processed['image_grid_thw']}")
 
+        # DEBUG: Analyze what the processor actually generated vs what we're throwing away
+        print(f"DEBUG: CRITICAL ANALYSIS - Vision Token Generation:")
+        chosen_text_from_processor = tokenizer.decode(chosen_processed["input_ids"][0], skip_special_tokens=False)
+        rejected_text_from_processor = tokenizer.decode(rejected_processed["input_ids"][0], skip_special_tokens=False)
+
+        print(f"DEBUG: Original chosen text preview: {features['chosen'][:200]}...")
+        print(f"DEBUG: Processor-generated chosen text preview: {chosen_text_from_processor[:200]}...")
+
+        # Count vision tokens in each
+        import re
+        original_chosen_pads = len(re.findall(r'<\|image_pad\|>', features['chosen']))
+        processor_chosen_pads = len(re.findall(r'<\|image_pad\|>', chosen_text_from_processor))
+
+        print(f"DEBUG: Original chosen text <|image_pad|> tokens: {original_chosen_pads}")
+        print(f"DEBUG: Processor-generated chosen <|image_pad|> tokens: {processor_chosen_pads}")
+        print(f"DEBUG: *** ISSUE IDENTIFIED: We process with processor (gets {processor_chosen_pads} tokens) but then use original text (only {original_chosen_pads} tokens)! ***")
+
         # Extract input_ids and pixel_values from individual processing
+        # CRITICAL FIX: Use the processor-generated input_ids that have proper vision tokens!
         chosen_input_ids = chosen_processed["input_ids"][0].tolist()
         rejected_input_ids = rejected_processed["input_ids"][0].tolist()
         chosen_pixel_values = chosen_processed["pixel_values"]
         rejected_pixel_values = rejected_processed["pixel_values"]
 
-        print(f"DEBUG: Extracted - chosen input_ids: {len(chosen_input_ids)}, rejected input_ids: {len(rejected_input_ids)}")
+        print(f"DEBUG: Using processor-generated input_ids - chosen: {len(chosen_input_ids)}, rejected: {len(rejected_input_ids)}")
         print(f"DEBUG: Extracted - chosen pixel_values: {chosen_pixel_values.shape}, rejected pixel_values: {rejected_pixel_values.shape}")
 
          # Process response (same as before)
