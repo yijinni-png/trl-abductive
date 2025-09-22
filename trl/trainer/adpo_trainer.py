@@ -1329,7 +1329,18 @@ class ADPOTrainer(Trainer):
 
         if "chosen_image_grid_thw" in batch and "rejected_image_grid_thw" in batch:
             print(f"DEBUG: concatenating image_grid_thw - chosen: {batch['chosen_image_grid_thw']}, rejected shape: {batch['rejected_image_grid_thw']}")
-            output["image_grid_thw"] = torch.cat([batch["chosen_image_grid_thw"], batch["rejected_image_grid_thw"]], dim=0)
+
+            # Handle case where data collator adds extra dimension
+            chosen_grid = batch["chosen_image_grid_thw"]
+            rejected_grid = batch["rejected_image_grid_thw"]
+
+            # If shape is [batch, 1, 3], flatten to [batch, 3]
+            if chosen_grid.dim() == 3 and chosen_grid.shape[1] == 1:
+                chosen_grid = chosen_grid.squeeze(1)
+            if rejected_grid.dim() == 3 and rejected_grid.shape[1] == 1:
+                rejected_grid = rejected_grid.squeeze(1)
+
+            output["image_grid_thw"] = torch.cat([chosen_grid, rejected_grid], dim=0)
             print(f"DEBUG: final concatenated image_grid_thw shape: {output['image_grid_thw'].shape if output['image_grid_thw'] is not None else 'None'}")
             print(f"DEBUG: final concatenated image_grid_thw values: {output['image_grid_thw']}")
 
