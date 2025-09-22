@@ -997,43 +997,26 @@ class ADPOTrainer(Trainer):
             add_special_tokens=False
         )
 
-        print(f"DEBUG: Combined processing results:")
-        print(f"  input_ids shape: {combined_processed_features['input_ids'].shape}")
-        print(f"  pixel_values shape: {combined_processed_features['pixel_values'].shape}")
-        if "image_grid_thw" in combined_processed_features:
-            print(f"  image_grid_thw shape: {combined_processed_features['image_grid_thw'].shape}")
-            print(f"  image_grid_thw values: {combined_processed_features['image_grid_thw']}")
+        print(f"DEBUG: Individual processing results:")
+        print(f"  chosen input_ids shape: {chosen_processed['input_ids'].shape}")
+        print(f"  rejected input_ids shape: {rejected_processed['input_ids'].shape}")
+        print(f"  chosen pixel_values shape: {chosen_processed['pixel_values'].shape}")
+        print(f"  rejected pixel_values shape: {rejected_processed['pixel_values'].shape}")
+        if "image_grid_thw" in chosen_processed:
+            print(f"  chosen image_grid_thw shape: {chosen_processed['image_grid_thw'].shape}")
+            print(f"  chosen image_grid_thw values: {chosen_processed['image_grid_thw']}")
+        if "image_grid_thw" in rejected_processed:
+            print(f"  rejected image_grid_thw shape: {rejected_processed['image_grid_thw'].shape}")
+            print(f"  rejected image_grid_thw values: {rejected_processed['image_grid_thw']}")
 
-        # Split the results back to chosen and rejected
-        chosen_input_ids = combined_processed_features["input_ids"][0].tolist()
-        rejected_input_ids = combined_processed_features["input_ids"][1].tolist()
+        # Extract input_ids and pixel_values from individual processing
+        chosen_input_ids = chosen_processed["input_ids"][0].tolist()
+        rejected_input_ids = rejected_processed["input_ids"][0].tolist()
+        chosen_pixel_values = chosen_processed["pixel_values"]
+        rejected_pixel_values = rejected_processed["pixel_values"]
 
-        # For pixel values, we need to split based on the number of images
-        num_chosen_images = len(features["chosen_images"])
-        num_rejected_images = len(features["rejected_images"])
-
-        # Split pixel_values using image_grid_thw to determine correct boundaries
-        total_pixel_values = combined_processed_features["pixel_values"]
-
-        if "image_grid_thw" in combined_processed_features:
-            # Use image_grid_thw to calculate exact patch counts for each image
-            grid_thw = combined_processed_features["image_grid_thw"]
-            chosen_patches = 0
-            for i in range(num_chosen_images):
-                t, h, w = grid_thw[i].tolist()
-                chosen_patches += t * h * w
-            chosen_pixel_values = total_pixel_values[:chosen_patches]
-            rejected_pixel_values = total_pixel_values[chosen_patches:]
-            chosen_end_idx = chosen_patches
-        else:
-            # Fallback: assume equal patches per image (original logic)
-            total_patches = total_pixel_values.shape[0]
-            patches_per_image = total_patches // (num_chosen_images + num_rejected_images)
-            chosen_end_idx = num_chosen_images * patches_per_image
-            chosen_pixel_values = total_pixel_values[:chosen_end_idx]
-            rejected_pixel_values = total_pixel_values[chosen_end_idx:]
-
-        print(f"DEBUG: Split pixel values - chosen: {chosen_pixel_values.shape}, rejected: {rejected_pixel_values.shape}")
+        print(f"DEBUG: Extracted - chosen input_ids: {len(chosen_input_ids)}, rejected input_ids: {len(rejected_input_ids)}")
+        print(f"DEBUG: Extracted - chosen pixel_values: {chosen_pixel_values.shape}, rejected pixel_values: {rejected_pixel_values.shape}")
 
          # Process response (same as before)
         response_input_ids = tokenizer(features["response"], add_special_tokens=False)["input_ids"]
@@ -1064,30 +1047,21 @@ class ADPOTrainer(Trainer):
             "rejected_input_ids": rejected_input_ids,
         }
 
-        # Handle additional features from combined processing
-        if "pixel_attention_mask" in combined_processed_features:
-            # Split pixel attention masks similarly to pixel_values
-            total_mask = combined_processed_features["pixel_attention_mask"]
-            chosen_mask = total_mask[:chosen_end_idx] if total_mask.shape[0] == total_patches else total_mask[0]
-            rejected_mask = total_mask[chosen_end_idx:] if total_mask.shape[0] == total_patches else total_mask[1]
-            output["chosen_pixel_attention_mask"] = chosen_mask
-            output["rejected_pixel_attention_mask"] = rejected_mask
+        # Handle additional features from individual processing
+        if "pixel_attention_mask" in chosen_processed:
+            output["chosen_pixel_attention_mask"] = chosen_processed["pixel_attention_mask"]
+        if "pixel_attention_mask" in rejected_processed:
+            output["rejected_pixel_attention_mask"] = rejected_processed["pixel_attention_mask"]
 
-        if "image_sizes" in combined_processed_features:
-            output["chosen_image_sizes"] = combined_processed_features["image_sizes"][0]
-            output["rejected_image_sizes"] = combined_processed_features["image_sizes"][1]
+        if "image_sizes" in chosen_processed:
+            output["chosen_image_sizes"] = chosen_processed["image_sizes"]
+        if "image_sizes" in rejected_processed:
+            output["rejected_image_sizes"] = rejected_processed["image_sizes"]
 
-        if "image_grid_thw" in combined_processed_features:
-            # Split image_grid_thw by number of images
-            grid_thw = combined_processed_features["image_grid_thw"]
-            if num_chosen_images == 1 and num_rejected_images == 1:
-                # For single images, take individual grid tensors
-                output["chosen_image_grid_thw"] = grid_thw[0]  # [3] shape
-                output["rejected_image_grid_thw"] = grid_thw[1]  # [3] shape
-            else:
-                # For multiple images, take slices
-                output["chosen_image_grid_thw"] = grid_thw[:num_chosen_images]
-                output["rejected_image_grid_thw"] = grid_thw[num_chosen_images:]
+        if "image_grid_thw" in chosen_processed:
+            output["chosen_image_grid_thw"] = chosen_processed["image_grid_thw"][0]  # Remove batch dimension
+        if "image_grid_thw" in rejected_processed:
+            output["rejected_image_grid_thw"] = rejected_processed["image_grid_thw"][0]  # Remove batch dimension
 
         print(f"DEBUG: Final output keys: {list(output.keys())}")
         return output
