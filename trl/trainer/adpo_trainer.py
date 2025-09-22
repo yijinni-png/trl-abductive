@@ -916,6 +916,38 @@ class ADPOTrainer(Trainer):
             "rejected_input_ids": rejected_input_ids,
         }
 
+    # OLD PROCESS_ROW - COMMENTED OUT (causes token/feature mismatch)
+    # @staticmethod
+    # def process_row_old(
+    #     features: dict[str, str],
+    #     processing_class: PreTrainedTokenizerBase,
+    #     max_prompt_length: Optional[int] = None,
+    #     max_completion_length: Optional[int] = None,
+    #     add_special_tokens: bool = True,
+    # ) -> dict[str, list[int]]:
+    #     """
+    #     OLD VERSION - Same as `tokenize_row` but for vision models.
+    #     PROBLEM: Processes chosen/rejected separately causing token/feature mismatch.
+    #     """
+    #     processor, tokenizer = processing_class, processing_class.tokenizer
+    #
+    #     # PROBLEM: Processing chosen and rejected separately
+    #     chosen_processed_features = processor(
+    #         images=features["chosen_images"],
+    #         text=features["chosen"],
+    #         padding=True,
+    #         return_tensors='pt',
+    #         add_special_tokens=False
+    #     )
+    #     rejected_processed_features = processor(
+    #         images=features["rejected_images"],
+    #         text=features["rejected"],
+    #         padding=True,
+    #         return_tensors='pt',
+    #         add_special_tokens=False
+    #     )
+    #     # ... rest of old implementation
+
     @staticmethod
     def process_row(
         features: dict[str, str],
@@ -925,108 +957,91 @@ class ADPOTrainer(Trainer):
         add_special_tokens: bool = True,
     ) -> dict[str, list[int]]:
         """
-        Same as `tokenize_row` but for vision models. Please refer to `tokenize_row` for more information.
+        NEW VERSION - Same as `tokenize_row` but for vision models with COMBINED processing.
+        FIXES: Processes chosen+rejected together to ensure token/feature alignment.
         """
         import sys
         import os
 
         # Debug output to confirm method entry
-        error_msg = "*** PROCESS_ROW ENTRY: Starting execution"
+        error_msg = "*** NEW PROCESS_ROW ENTRY: Starting execution"
         print(error_msg, flush=True)
         sys.stderr.write(f"{error_msg}\n")
         sys.stderr.flush()
 
-        # Use multiple methods to ensure debug output is visible
-        debug_msg = f"*** PROCESS_ROW CALLED! Features keys: {list(features.keys())}"
+        debug_msg = f"*** NEW PROCESS_ROW CALLED! Features keys: {list(features.keys())}"
         print(debug_msg, flush=True)
         sys.stderr.write(f"{debug_msg}\n")
         sys.stderr.flush()
 
-        # Write to a debug file as backup
-        try:
-            with open("/tmp/adpo_debug.log", "a") as f:
-                f.write(f"{debug_msg}\n")
-                f.flush()
-        except:
-            pass
+        processor, tokenizer = processing_class, processing_class.tokenizer
 
-        debug_msg2 = f"DEBUG: process_row called with features keys: {list(features.keys())}"
-        print(debug_msg2, flush=True)
-        sys.stderr.write(f"{debug_msg2}\n")
-        sys.stderr.flush()
+        # NEW APPROACH: Combined processing to ensure token/feature alignment
+        print(f"DEBUG: Combining images and texts for unified processing")
+        all_images = features["chosen_images"] + features["rejected_images"]
+        all_texts = [features["chosen"], features["rejected"]]
 
-        if "response" in features:
-            response_debug = f"DEBUG: response field exists, content: {features['response'][:100] if isinstance(features['response'], str) else features['response']}"
-            print(response_debug, flush=True)
-            sys.stderr.write(f"{response_debug}\n")
-            sys.stderr.flush()
-        else:
-            warning_debug = f"DEBUG: WARNING - 'response' field NOT found in features!"
-            print(warning_debug, flush=True)
-            sys.stderr.write(f"{warning_debug}\n")
-            sys.stderr.flush()
-        
-        processor, tokenizer = processing_class, processing_class.tokenizer  # the processing class is a processor
+        print(f"DEBUG: Chosen images: {len(features['chosen_images'])}, Rejected images: {len(features['rejected_images'])}")
+        print(f"DEBUG: Total images: {len(all_images)}, Total texts: {len(all_texts)}")
+        print(f"DEBUG: Texts are identical: {features['chosen'] == features['rejected']}")
 
-        # Chat template is already applied before process_row is called (at line 715)
-        # So chosen and rejected should already be text strings, not chat format
-        chosen_processed_features = processor(
-            images=features["chosen_images"], 
-            text=features["chosen"], 
+        # Process all images and texts together - this ensures proper token/feature alignment
+        combined_processed_features = processor(
+            images=all_images,
+            text=all_texts,
             padding=True,
-            return_tensors = 'pt',
-            add_special_tokens=False
-        )
-        rejected_processed_features = processor(
-            images=features["rejected_images"], 
-            text=features["rejected"], 
-            padding=True,
-            return_tensors = 'pt',
+            return_tensors='pt',
             add_special_tokens=False
         )
 
-        print(f"DEBUG: chosen_processed_features keys: {list(chosen_processed_features.keys())}")
-        print(f"DEBUG: rejected_processed_features keys: {list(rejected_processed_features.keys())}")
+        print(f"DEBUG: Combined processing results:")
+        print(f"  input_ids shape: {combined_processed_features['input_ids'].shape}")
+        print(f"  pixel_values shape: {combined_processed_features['pixel_values'].shape}")
+        if "image_grid_thw" in combined_processed_features:
+            print(f"  image_grid_thw shape: {combined_processed_features['image_grid_thw'].shape}")
+            print(f"  image_grid_thw values: {combined_processed_features['image_grid_thw']}")
 
-        chosen_input_ids = chosen_processed_features["input_ids"][0]
-        rejected_input_ids = rejected_processed_features["input_ids"][0]
-        chosen_pixel_values = chosen_processed_features["pixel_values"]
-        rejected_pixel_values = rejected_processed_features["pixel_values"]
-        
-        # Debug: Check raw pixel_values shapes from processor
-        print(f"DEBUG: chosen_processed_features pixel_values actual shape: {chosen_processed_features['pixel_values'].shape}")
-        print(f"DEBUG: rejected_processed_features pixel_values actual shape: {rejected_processed_features['pixel_values'].shape}")
-        if "image_grid_thw" in chosen_processed_features:
-            print(f"DEBUG: RAW chosen image_grid_thw: {chosen_processed_features['image_grid_thw']}")
-        if "image_grid_thw" in rejected_processed_features:
-            print(f"DEBUG: RAW rejected image_grid_thw: {rejected_processed_features['image_grid_thw']}")
-        print(f"DEBUG: chosen_pixel_values total elements:  {chosen_processed_features['pixel_values'].numel()}")
-        print(f"DEBUG: rejected_pixel_values total elements:  {rejected_processed_features['pixel_values'].numel()}")
-        # prompt_input_ids = processed_features["input_ids"][0]
-        # pixel_values = processed_features["pixel_values"][0]
+        # Split the results back to chosen and rejected
+        chosen_input_ids = combined_processed_features["input_ids"][0].tolist()
+        rejected_input_ids = combined_processed_features["input_ids"][1].tolist()
+
+        # For pixel values, we need to split based on the number of images
+        num_chosen_images = len(features["chosen_images"])
+        num_rejected_images = len(features["rejected_images"])
+
+        # Split pixel_values - first N patches for chosen, rest for rejected
+        total_pixel_values = combined_processed_features["pixel_values"]
+
+        # Calculate patches per image (assuming equal patch count per image)
+        total_patches = total_pixel_values.shape[0]
+        patches_per_image = total_patches // (num_chosen_images + num_rejected_images)
+
+        chosen_end_idx = num_chosen_images * patches_per_image
+        chosen_pixel_values = total_pixel_values[:chosen_end_idx]
+        rejected_pixel_values = total_pixel_values[chosen_end_idx:]
+
+        print(f"DEBUG: Split pixel values - chosen: {chosen_pixel_values.shape}, rejected: {rejected_pixel_values.shape}")
+
+        # Process response (same as before)
         response_input_ids = tokenizer(features["response"], add_special_tokens=False)["input_ids"]
         print(f"DEBUG: response_input_ids created, length: {len(response_input_ids)}, first tokens: {response_input_ids[:10]}")
-        # chosen_input_ids = tokenizer(features["chosen"], add_special_tokens=False)["input_ids"]
-        # rejected_input_ids = tokenizer(features["rejected"], add_special_tokens=False)["input_ids"]
 
         # Add special tokens (typically for encoder-decoder models)
         if add_special_tokens:
             if tokenizer.bos_token_id is not None:
                 chosen_input_ids = [tokenizer.bos_token_id] + chosen_input_ids
-                rejected_input_ids = [tokenizer.eos_token_id] + rejected_input_ids
+                rejected_input_ids = [tokenizer.bos_token_id] + rejected_input_ids
             if tokenizer.eos_token_id is not None:
                 chosen_input_ids = chosen_input_ids + [tokenizer.eos_token_id]
                 rejected_input_ids = rejected_input_ids + [tokenizer.eos_token_id]
         response_input_ids = response_input_ids + [tokenizer.eos_token_id]
-        # rejected_input_ids = rejected_input_ids + [tokenizer.eos_token_id]
 
-        # Truncate prompt and completion sequences
+        # Truncate sequences
         if max_prompt_length is not None:
             chosen_input_ids = chosen_input_ids[-max_prompt_length:]
             rejected_input_ids = rejected_input_ids[-max_prompt_length:]
         if max_completion_length is not None:
             response_input_ids = response_input_ids[:max_completion_length]
-            # rejected_input_ids = rejected_input_ids[:max_completion_length]
 
         output = {
             "response_input_ids": response_input_ids,
@@ -1036,29 +1051,26 @@ class ADPOTrainer(Trainer):
             "rejected_input_ids": rejected_input_ids,
         }
 
-        # Get patch size from processor configuration
-        patch_size = processor.image_processor.patch_size
-        print(f"DEBUG: Using patch_size: {patch_size}")
+        # Handle additional features from combined processing
+        if "pixel_attention_mask" in combined_processed_features:
+            # Split pixel attention masks similarly to pixel_values
+            total_mask = combined_processed_features["pixel_attention_mask"]
+            chosen_mask = total_mask[:chosen_end_idx] if total_mask.shape[0] == total_patches else total_mask[0]
+            rejected_mask = total_mask[chosen_end_idx:] if total_mask.shape[0] == total_patches else total_mask[1]
+            output["chosen_pixel_attention_mask"] = chosen_mask
+            output["rejected_pixel_attention_mask"] = rejected_mask
 
-        # Handle pixel attention masks
-        if "pixel_attention_mask" in chosen_processed_features:
-            output["chosen_pixel_attention_mask"] = chosen_processed_features["pixel_attention_mask"][0]
-        if "pixel_attention_mask" in rejected_processed_features:
-            output["rejected_pixel_attention_mask"] = rejected_processed_features["pixel_attention_mask"][0]
+        if "image_sizes" in combined_processed_features:
+            output["chosen_image_sizes"] = combined_processed_features["image_sizes"][0]
+            output["rejected_image_sizes"] = combined_processed_features["image_sizes"][1]
 
-        # Handle image sizes
-        if "image_sizes" in chosen_processed_features:
-            output["chosen_image_sizes"] = chosen_processed_features["image_sizes"][0]
-        if "image_sizes" in rejected_processed_features:
-            output["rejected_image_sizes"] = rejected_processed_features["image_sizes"][0]
+        if "image_grid_thw" in combined_processed_features:
+            # Split image_grid_thw by number of images
+            grid_thw = combined_processed_features["image_grid_thw"]
+            output["chosen_image_grid_thw"] = grid_thw[0]
+            output["rejected_image_grid_thw"] = grid_thw[1]
 
-        # Handle image_grid_thw - ALWAYS use processor values when available (they're correct!)
-        if "image_grid_thw" in chosen_processed_features:
-            output["chosen_image_grid_thw"] = chosen_processed_features["image_grid_thw"][0]
-
-        if "image_grid_thw" in rejected_processed_features:
-            output["rejected_image_grid_thw"] = rejected_processed_features["image_grid_thw"][0]
-
+        print(f"DEBUG: Final output keys: {list(output.keys())}")
         return output
 
     def _set_signature_columns_if_needed(self):
