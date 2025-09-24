@@ -1011,8 +1011,8 @@ class ADPOTrainer(Trainer):
         response_input_ids = response_input_ids + [tokenizer.eos_token_id]
 
         # Truncate sequences
-        print(f'Max prompt length: {max_prompt_length}, max completion length: {max_completion_length}'.)
-        print(f'Length of chosen_input_ids: {len(chosen_input_ids)}, length of rejected_input_ids: {len(rejected_input_ids)}')
+        print(f'Max prompt length: {max_prompt_length}, max completion length: {max_completion_length}.')
+        print(f'Length of chosen_input_ids: {len(chosen_input_ids)}, length of rejected_input_ids: {len(rejected_input_ids)}.')
         if max_prompt_length is not None:
             chosen_input_ids = chosen_input_ids[-max_prompt_length:]
             rejected_input_ids = rejected_input_ids[-max_prompt_length:]
@@ -1851,8 +1851,8 @@ class ADPOTrainer(Trainer):
                 dim=1,
             )
 
-        print(f'******************************CONCATENATED_FORWARD()******************************')
-        print(f'Length of input_ids before passing to model(input_ids, **model_kwargs): {input_ids.shape}.')
+            print(f'******************************CONCATENATED_FORWARD()******************************')
+            print(f'Length of input_ids before passing to model(input_ids, **model_kwargs): {input_ids.shape}.')
             # Flush and truncate
             if self.max_length is not None and self.max_length < attention_mask.size(1):
                 if self.truncation_mode == "keep_start":
