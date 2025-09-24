@@ -963,11 +963,28 @@ class ADPOTrainer(Trainer):
         import sys
         import os
 
+        print("DEBUG: process_row - ENTRY POINT")
+        print(f"DEBUG: features keys: {list(features.keys())}")
+        print(f"DEBUG: processing_class type: {type(processing_class)}")
+
+        try:
+            chosen_images_len = len(features['chosen_images'])
+            rejected_images_len = len(features['rejected_images'])
+            print(f"DEBUG: Image lengths - chosen: {chosen_images_len}, rejected: {rejected_images_len}")
+        except Exception as e:
+            print(f"DEBUG: Error getting image lengths: {e}")
+            return {}
+
         print(f"DEBUG: ADPO process_row - Processing {len(features['chosen_images'])} chosen + {len(features['rejected_images'])} rejected images")
 
         processor, tokenizer = processing_class, processing_class.tokenizer
+        print("DEBUG: Got processor and tokenizer successfully")
 
         # Process chosen and rejected individually using official approach
+        print("DEBUG: Starting chosen processing...")
+        print(f"DEBUG: chosen text length: {len(features['chosen'])}")
+        print(f"DEBUG: chosen images type: {type(features['chosen_images'])}")
+
         chosen_processed = processor(
             text=[features["chosen"]],
             images=features["chosen_images"],
@@ -975,6 +992,11 @@ class ADPOTrainer(Trainer):
             return_tensors='pt',
             add_special_tokens=False
         )
+        print("DEBUG: Chosen processing completed successfully")
+
+        print("DEBUG: Starting rejected processing...")
+        print(f"DEBUG: rejected text length: {len(features['rejected'])}")
+        print(f"DEBUG: rejected images type: {type(features['rejected_images'])}")
 
         rejected_processed = processor(
             text=[features["rejected"]],
@@ -983,6 +1005,7 @@ class ADPOTrainer(Trainer):
             return_tensors='pt',
             add_special_tokens=False
         )
+        print("DEBUG: Rejected processing completed successfully")
 
         # Verify the fix: Check vision token counts
         import re
