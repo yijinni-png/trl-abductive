@@ -824,6 +824,23 @@ class ADPOTrainer(Trainer):
                 pass
 
             print("*** BEFORE dataset.map call", flush=True)
+            print(f"*** Dataset info: type={type(dataset)}, len={len(dataset) if hasattr(dataset, '__len__') else 'unknown'}", flush=True)
+            print(f"*** Map kwargs: {map_kwargs}", flush=True)
+            print(f"*** Processing class: {type(processing_class)}", flush=True)
+
+            # Try to inspect first few examples before processing
+            try:
+                print("*** Checking first example structure...", flush=True)
+                first_example = dataset[0] if len(dataset) > 0 else {}
+                print(f"*** First example keys: {list(first_example.keys())}", flush=True)
+                print(f"*** First example 'chosen' type: {type(first_example.get('chosen', 'missing'))}", flush=True)
+                print(f"*** First example 'chosen_images' type: {type(first_example.get('chosen_images', 'missing'))}", flush=True)
+                if 'chosen_images' in first_example:
+                    print(f"*** First example 'chosen_images' length: {len(first_example['chosen_images'])}", flush=True)
+            except Exception as e:
+                print(f"*** Error inspecting first example: {e}", flush=True)
+
+            print("*** Starting dataset.map call...", flush=True)
             dataset = dataset.map(
                 self.tokenize_row if not self.is_vision_model else self.process_row,
                 remove_columns=["chosen", "rejected"],
@@ -836,6 +853,7 @@ class ADPOTrainer(Trainer):
                 },
                 **map_kwargs,
             )
+            print("*** COMPLETED dataset.map call", flush=True)
             
             print(f"DEBUG: After dataset.map, dataset has {len(dataset)} examples")
             if len(dataset) > 0:
