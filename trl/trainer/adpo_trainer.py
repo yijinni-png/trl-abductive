@@ -1312,7 +1312,18 @@ class ADPOTrainer(Trainer):
             print(f"DEBUG: concatenating pixel_values")
             print(f"  chosen_pixel_values shape: {batch['chosen_pixel_values'].shape}")
             print(f"  rejected_pixel_values shape: {batch['rejected_pixel_values'].shape}")
-            output["pixel_values"] = torch.cat([batch["chosen_pixel_values"], batch["rejected_pixel_values"]], dim=0)
+
+            # Handle 5D tensor case [batch, num_images, channels, height, width]
+            chosen_pv = batch["chosen_pixel_values"]
+            rejected_pv = batch["rejected_pixel_values"]
+
+            # Squeeze out the num_images dimension if it's 1
+            if len(chosen_pv.shape) == 5 and chosen_pv.shape[1] == 1:
+                chosen_pv = chosen_pv.squeeze(1)  # [batch, 1, C, H, W] -> [batch, C, H, W]
+            if len(rejected_pv.shape) == 5 and rejected_pv.shape[1] == 1:
+                rejected_pv = rejected_pv.squeeze(1)  # [batch, 1, C, H, W] -> [batch, C, H, W]
+
+            output["pixel_values"] = torch.cat([chosen_pv, rejected_pv], dim=0)
             print(f"  final concatenated pixel_values shape: {output['pixel_values'].shape}")
             print(f"  final concatenated pixel_values size: {output['pixel_values'].numel()}")
             print(f"  final concatenated pixel_values dtype: {output['pixel_values'].dtype}")
